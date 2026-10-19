@@ -1,0 +1,9 @@
+node_modules/
+.next/
+.vercel/
+.env*
+!.env.example
+# never commit Qloo response data or local research
+research/
+vendor/
+*.qloo.json

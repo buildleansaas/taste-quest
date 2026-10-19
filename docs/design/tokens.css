@@ -1,0 +1,98 @@
+/* taste-quest design tokens — matched to qloo.com (Astro/Tailwind build, /_astro/BaseLayout.*.css, Oct 2026) */
+@font-face{font-family:"Figtree";src:url(assets/fonts/figtree-latin-wght-normal.woff2) format("woff2-variations");font-weight:300 900;font-display:block}
+@font-face{font-family:"Inter Variable";src:url(assets/fonts/inter-latin-wght-normal.woff2) format("woff2-variations");font-weight:100 900;font-display:block}
+@font-face{font-family:"Fira Code";src:url(assets/fonts/fira-code-latin-400-normal.woff2) format("woff2");font-weight:400;font-display:block}
+
+:root{
+  /* Neutrals (warm paper + cool ink) */
+  --color-surface:#f8f6f4;        /* page background */
+  --color-surface-raised:#fcfaf8;
+  --color-surface-alt:#f2f0ee;    /* grouped panels */
+  --color-surface-deep:#f0eeec;
+  --color-white:#ffffff;
+  --color-cream:#e8e6e4;          /* secondary pill button, track */
+  --color-chip:#e6e6e6;
+  --color-hairline:#e0ded9;
+  --color-ink:#28323c;            /* primary text + logo */
+  --color-slate-deep:#464b50;
+  --color-slate:#505a64;          /* body/nav text */
+  --color-slate-dim:#78828c;      /* meta */
+  --color-slate-soft:#a0aab4;
+  --color-slate-pale:#c8cdd2;
+  --color-taupe:#b4aaa0;          /* soft section headings */
+  --color-taupe-deep:#a0968c;
+  --color-taupe-soft:#c8beb4;
+  --color-stone:#7a6f65;
+
+  /* Brand accent (lilac — the bar over "oo" and favicon tail) */
+  --color-accent:#8c8cc8;
+  --color-accent-hover:#8081b7;
+  --color-accent-deep:#6f6fba;
+  --color-accent-ring:#8c8cc852;
+  --color-glass:#8c8cc866;
+  --color-plum:#785064;           /* lede / statement text */
+  --color-plum-soft:#a0788c;
+  --color-flare:#fa7850;
+  --color-error:#c8503c;
+
+  /* Night (hero / dark panels) */
+  --color-night:#1e2328;
+  --color-night-deep:#191e23;
+  --color-night-card:#181e23;
+  --color-night-mark:#282d32;
+  --gradient-panel:linear-gradient(135deg,#162029 0%,#323c46 42%,#4d5761 100%);
+  --gradient-band:linear-gradient(105deg,#2a343e 0%,#35434e 34%,#668794 100%);
+
+  /* Taste categories (text on wash) */
+  --cat-artists:#774ab5;  --cat-artists-wash:#ece5fb;
+  --cat-film:#a34414;     --cat-film-wash:#fdf0da;
+  --cat-places:#486a75;   --cat-places-wash:#dff3f8;
+  --cat-cuisine:#70611a;  --cat-cuisine-wash:#fbf0dc;  /* qloo "brands" pair */
+  --cat-vibes:#8a4a62;    --cat-vibes-wash:#f7eaef;    /* qloo "enrich" pair */
+  /* Solution card tones */
+  --tone-sage:#8ca082; --tone-steel:#648c96; --tone-mauve:#b48ca0; --tone-amber:#e6be78; --tone-lilac:#b4aadc; --tone-coral:#f06464;
+
+  /* Map (qloo.com geo demo palette) */
+  --geo-land:#f8f4f0; --geo-buildings:#e2ddd8; --geo-roads:#ffffff;
+  --geo-water:#a8d4f5; --geo-water-muted:#d7e1e8; --geo-park:#cfdcc6;
+  --geo-labels:#333333; --geo-road-labels:#666666;
+
+  /* Type */
+  --font-display:"Circular Std","Figtree",ui-sans-serif,system-ui,sans-serif;
+  --font-sans:"Inter Variable",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:"Fira Code",ui-monospace,"SF Mono",Menlo,monospace;
+  --text-display:4.5rem;  --text-display-lh:5.5rem;
+  --text-lede-lg:2.25rem; --text-lede-lg-lh:3.5rem;
+  --text-h2-band:2.5rem;  --text-h2-band-lh:3.5rem;
+  --text-h2-lg:2rem;      --text-h2-lg-lh:2.5rem;
+  --text-h2:1.5rem;       --text-h2-lh:2rem;
+  --text-h3:1.25rem;      --text-h3-lh:1.75rem;
+  --text-lead:1.0625rem;  --text-lead-lh:1.75rem;
+  --text-card-head:1.0625rem; --text-card-head-lh:1.5625rem;
+  --text-body:.9375rem;   --text-body-lh:1.5rem;
+  --text-sm:.875rem;      --text-sm-lh:1.25rem;
+  --text-card-meta:.8125rem;
+  --text-field-label:.6875rem;
+  --tracking-wide:.025em; --tracking-eyebrow:.3em; --tracking-mono:.16em;
+
+  /* Space (Tailwind 4px base) */
+  --spacing:.25rem;
+  --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;--space-10:40px;--space-12:48px;
+
+  /* Radius */
+  --radius-md:.375rem; --radius-lg:.5rem; --radius-field:.5rem; --radius-xl:.75rem;
+  --radius-panel:.875rem; --radius-card:1.5rem; --radius-full:9999px;
+
+  /* Elevation (soft, centered, never directional except float) */
+  --shadow-control-sm:0 0 8px 0 #00000029;
+  --shadow-control:0 0 12px 0 #0000001f;
+  --shadow-card:0 0 24px 0 #00000014;
+  --shadow-pop:0 0 32px 0 #00000014;
+  --shadow-lift:0 0 48px 0 #00000014;
+  --shadow-float:8px 8px 48px 0 #00000014;
+
+  /* Motion */
+  --ease:cubic-bezier(.4,0,.2,1); --ease-out:cubic-bezier(0,0,.2,1);
+  --dur-fast:.15s; --dur-fade-in:.55s; --dur-fade-out:.3s;
+}
+@keyframes live-pulse{0%{opacity:.7;transform:scale(1)}to{opacity:0;transform:scale(2.6)}}
