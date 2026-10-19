@@ -204,7 +204,31 @@ a { color: inherit; }
 
 .map-stage { position: absolute; inset: 0; background: #f8f4f0; }
 .map-stage.tiles-failed { background: #f8f4f0; }
+/* MapLibre sets position:relative on .maplibregl-map, which drops inset/height and
+   collapses the canvas to 0. Two classes plus !important beat that rule. */
+.map-fill { position: absolute; inset: 0; width: 100%; height: 100%; }
+.map-stage.maplibregl-map,
+.map-fill.maplibregl-map {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
 .maplibregl-ctrl-attrib, .maplibregl-ctrl-logo { display: none !important; }
+.status-pill {
+  position: absolute;
+  top: 108px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: center;
+  z-index: 11;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.45s var(--ease), transform 0.45s var(--ease);
+}
+.status-pill.on { opacity: 1; transform: none; }
 .status {
   position: absolute;
   top: 0;

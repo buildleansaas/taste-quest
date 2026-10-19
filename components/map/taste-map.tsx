@@ -90,16 +90,35 @@ export function TasteMap({
       fadeDuration: 0,
       preserveDrawingBuffer: true,
     });
-    map.on("style.load", () => {
-      recolor(map);
-      paint(map, scene.current, markers);
+    const apply = () => {
+      map.resize();
+      // `style.load` means the stylesheet is ready. `isStyleLoaded()` stays
+      // false until every tile source finishes, so it must not gate overlays.
+      if (!map.getStyle()?.layers?.length) return;
+      try {
+        recolor(map);
+        paint(map, scene.current, markers);
+      } catch (err) {
+        console.warn("map paint", err);
+      }
+    };
+    map.on("style.load", apply);
+    map.on("error", (event) => {
+      console.warn("map", event.error?.message ?? event);
+      node.current?.classList.add("tiles-failed");
     });
-    map.on("error", () => node.current?.classList.add("tiles-failed"));
     map.on("click", (event) => {
       pick.current?.(event.lngLat.lat, event.lngLat.lng);
     });
+    const observer = new ResizeObserver(() => {
+      if ((node.current?.clientHeight ?? 0) < 32) return;
+      apply();
+    });
+    observer.observe(node.current);
     mapRef.current = map;
     return () => {
+      observer.disconnect();
+      map.off("style.load", apply);
       map.remove();
       mapRef.current = null;
     };
@@ -109,13 +128,30 @@ export function TasteMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map) return;
-    const draw = () => paint(map, scene.current, markers);
-    if (map.isStyleLoaded() && map.getLayer("b3d")) draw();
-    else map.once("idle", draw);
+    if (!map?.getStyle()?.layers?.length) return;
+    try {
+      if (!map.getLayer("b3d")) recolor(map);
+      paint(map, scene.current, markers);
+    } catch (err) {
+      console.warn("map paint", err);
+    }
   }, [routes, pins, user, center, zoom, pitch, bearing, frame, pad, zoomOut]);
 
-  return <div ref={node} className={className ?? "map-stage"} />;
+  return <div ref={node} className={className ?? "map-fill"} />;
+}
+
+function fitPad(pad: MapPad | undefined, width: number, height: number): MapPad | undefined {
+  if (!pad) return undefined;
+  const sy = (height - 48) / (pad.top + pad.bottom);
+  const sx = (width - 32) / (pad.left + pad.right);
+  const scale = Math.min(1, sy, sx);
+  if (!Number.isFinite(scale) || scale >= 1) return pad;
+  return {
+    top: Math.max(8, pad.top * scale),
+    bottom: Math.max(8, pad.bottom * scale),
+    left: Math.max(8, pad.left * scale),
+    right: Math.max(8, pad.right * scale),
+  };
 }
 
 function recolor(map: maplibregl.Map) {
@@ -254,8 +290,11 @@ function paint(
   if (props.frame && props.frame.length > 1) {
     const bounds = new maplibregl.LngLatBounds();
     props.frame.forEach((point) => bounds.extend(point));
-    const camera = map.cameraForBounds(bounds, { padding: props.pad, bearing: props.bearing || 0 });
-    if (camera && camera.zoom != null) {
+    const height = map.getContainer().clientHeight || 1;
+    const width = map.getContainer().clientWidth || 1;
+    const pad = fitPad(props.pad, width, height);
+    const camera = map.cameraForBounds(bounds, { padding: pad, bearing: props.bearing || 0 });
+    if (camera && camera.zoom != null && Number.isFinite(camera.zoom)) {
       map.jumpTo({
         center: camera.center,
         zoom: camera.zoom - (props.zoomOut ?? 0.1),

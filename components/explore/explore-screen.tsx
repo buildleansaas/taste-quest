@@ -32,6 +32,8 @@ export function ExploreScreen() {
   const clearAll = useQuest((s) => s.clearAll);
   const [steps, setSteps] = useState<string[]>([]);
   const [planning, setPlanning] = useState(false);
+  const [pill, setPill] = useState<string | null>(null);
+  const [pillOn, setPillOn] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
@@ -45,6 +47,17 @@ export function ExploreScreen() {
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (planning && steps.length > 0) {
+      setPill(steps[steps.length - 1] ?? null);
+      setPillOn(true);
+      return;
+    }
+    setPillOn(false);
+    const timer = window.setTimeout(() => setPill(null), 700);
+    return () => window.clearTimeout(timer);
+  }, [planning, steps]);
 
   useEffect(() => {
     const sync = () => setOnline(navigator.onLine);
@@ -94,6 +107,7 @@ export function ExploreScreen() {
           if (part.type === "data-walk") {
             setWalk(part.data as Walk);
             setNeedsPlan(false);
+            setPlanning(false);
           }
         }, controller.signal);
       })
@@ -258,13 +272,9 @@ export function ExploreScreen() {
         </span>
       </div>
 
-      {planning ? (
-        <div style={{ position: "absolute", left: 20, right: 20, top: 78, zIndex: 11 }} aria-live="polite">
-          {(steps.length ? steps : ["Searching Qloo near you…"]).slice(-2).map((step) => (
-            <div key={step} className="geo-chip" style={{ marginBottom: 8 }}>
-              {step}
-            </div>
-          ))}
+      {pill ? (
+        <div className={pillOn ? "status-pill on" : "status-pill"} aria-live="polite">
+          <span className="geo-chip">{pill}</span>
         </div>
       ) : null}
 

@@ -90,7 +90,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
       <DeviceChrome />
       <div style={{ height: 290, position: "relative" }}>
         <TasteMap
-          className="map-stage"
+          className="map-fill"
           center={swan ? [-97.7364559, 30.2655328] : [stop.lon, stop.lat]}
           zoom={swan ? 16.4 : 16.2}
           pitch={40}
