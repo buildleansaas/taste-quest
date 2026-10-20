@@ -171,7 +171,14 @@ export type TagHit = { id: string; name: string; type: string };
 
 export function normalizeTags(payload: unknown): TagHit[] {
   const root = asRecord(payload);
-  const list = Array.isArray(root?.results) ? root.results : Array.isArray(root?.tags) ? root.tags : [];
+  const nested = asRecord(root?.results)?.tags;
+  const list = Array.isArray(root?.results)
+    ? root.results
+    : Array.isArray(nested)
+      ? nested
+      : Array.isArray(root?.tags)
+        ? root.tags
+        : [];
   const tags: TagHit[] = [];
   for (const item of list) {
     const row = asRecord(item);

@@ -216,6 +216,15 @@ export async function placesNear(input: {
   offset?: number;
   allowLive: boolean;
 }): Promise<Candidate[]> {
+  if (qlooConfigured() && input.allowLive) {
+    // Curated chips that never resolved to a real Qloo id keep a "sample-" id.
+    // Qloo rejects them, so drop them rather than fail the whole plan.
+    input = {
+      ...input,
+      entities: input.entities.filter((entity) => !entity.id.startsWith("sample-")),
+      tags: input.tags.filter((tag) => !tag.id.startsWith("sample-")),
+    };
+  }
   if (!qlooConfigured() || !input.allowLive) {
     return samplePlacesNear(input.lat, input.lon, {
       entities: input.entities,

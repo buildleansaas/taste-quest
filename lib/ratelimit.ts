@@ -20,10 +20,11 @@ export function rateLimit(
 }
 
 export function clientKey(req: Request, bucket: string): string {
-  const device = (req.headers.get("x-device-id") ?? "anon").slice(0, 80);
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
     "local";
-  return `${bucket}:${device}:${ip}`;
+  // Keyed on IP only. x-device-id is client-controlled, so a fresh value per
+  // request would get a fresh bucket and bypass the limit.
+  return `${bucket}:${ip}`;
 }

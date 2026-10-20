@@ -201,6 +201,13 @@ export function orderNoteFor(
   return undefined;
 }
 
+function openWithin(hours: PlaceHours | undefined, weekday: string, from: Date, windowMin: number): boolean {
+  for (let m = 0; m <= windowMin; m += 15) {
+    if (isOpenAt(hours, weekday, new Date(from.getTime() + m * 60_000))) return true;
+  }
+  return false;
+}
+
 export function openThrough(
   hours: PlaceHours | undefined,
   weekday: string,
@@ -255,6 +262,8 @@ export function prepareCandidates(
     userTags: TasteTag[];
     rainy: boolean;
     evening: boolean;
+    /** Keep places that open within this many minutes of departure. Arrival hours are checked by fitsSequence. */
+    windowMin?: number;
   },
 ): Scored[] {
   const drop = new Set(opts.dropIds);
@@ -265,7 +274,7 @@ export function prepareCandidates(
     if (drop.has(candidate.entityId)) continue;
     if (candidate.isClosed) continue;
     if (denied(candidate)) continue;
-    if (!isOpenAt(candidate.hours, opts.weekday, opts.departAt)) continue;
+    if (!openWithin(candidate.hours, opts.weekday, opts.departAt, opts.windowMin ?? 0)) continue;
     const address = normAddress(candidate.address);
     if (address) {
       const prev = byAddress.get(address);

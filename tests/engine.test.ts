@@ -20,6 +20,7 @@ import { demoProfile, DEMO_START } from "@/lib/taste/curated";
 import { buildWalk, rerouteWalk } from "@/lib/plan/build";
 import { designReroute } from "@/lib/plan/design-walk";
 import type { Candidate, Walk } from "@/lib/types";
+import { formatMinutes } from "@/lib/format";
 
 const saturday = "saturday";
 const evening = new Date(Date.UTC(2026, 9, 24, 19, 0));
@@ -411,3 +412,32 @@ function path(start: { lat: number; lon: number }, seq: { lat: number; lon: numb
   }
   return meters;
 }
+
+describe("review fixes", () => {
+  const bar: Candidate = {
+    entityId: "bar-opens-4",
+    name: "Opens at four",
+    lat: 30.267,
+    lon: -97.74,
+    affinity: 0.9,
+    category: "bar",
+    categoryLabel: "Bar",
+    tags: [],
+    entityShares: [],
+    hours: { saturday: [{ opens: "T16:00:00", closes: "T23:00:00" }] },
+  };
+  const base = { weekday: "saturday", pace: "easy" as const, dropIds: [], userTags: [], rainy: false, evening: false };
+  const half3 = new Date(Date.UTC(2026, 9, 24, 15, 30));
+
+  it("keeps a place that opens during the walk window", () => {
+    expect(prepareCandidates([bar], { ...base, departAt: half3 })).toHaveLength(0);
+    expect(prepareCandidates([bar], { ...base, departAt: half3, windowMin: 120 })).toHaveLength(1);
+  });
+
+  it("never prints 60 minutes", () => {
+    expect(formatMinutes(119.6)).toBe("2h 00m");
+    expect(formatMinutes(59.7)).toBe("1h 00m");
+    expect(formatMinutes(91)).toBe("1h 31m");
+    expect(formatMinutes(27)).toBe("27m");
+  });
+});

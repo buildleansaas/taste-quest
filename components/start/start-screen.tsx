@@ -25,6 +25,7 @@ export function StartScreen() {
   const setBudget = useQuest((s) => s.setBudget);
   const setStart = useQuest((s) => s.setStart);
   const setNeedsPlan = useQuest((s) => s.setNeedsPlan);
+  const setWalk = useQuest((s) => s.setWalk);
   const [mode, setMode] = useState<BudgetMode>("2h");
   const [pace, setPace] = useState<Pace>("easy");
   const [shape, setShape] = useState<ShapeMode>("loop");
@@ -293,6 +294,8 @@ export function StartScreen() {
             const minutes = minutesFor(mode);
             setBudget({ minutes, mode, pace, shape });
             setStart({ lat, lon, label, source, accuracyM: accuracy });
+            // A new start replaces the old walk, so its line and pins never show over the new plan.
+            setWalk(null);
             setNeedsPlan(true);
             router.push("/explore");
           }}

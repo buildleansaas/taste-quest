@@ -233,11 +233,16 @@ function paint(
 ) {
   markers.current.forEach((marker) => marker.remove());
   markers.current = [];
+  // Remove every route layer from the last paint, including indices the new
+  // scene no longer has, so an older walk's line never lingers.
+  for (const layer of map.getStyle().layers ?? []) {
+    if (/^r\d+c?$/.test(layer.id)) map.removeLayer(layer.id);
+  }
+  for (const source of Object.keys(map.getStyle().sources ?? {})) {
+    if (/^r\d+$/.test(source)) map.removeSource(source);
+  }
   props.routes.forEach((route, index) => {
     const id = `r${index}`;
-    if (map.getLayer(`${id}c`)) map.removeLayer(`${id}c`);
-    if (map.getLayer(id)) map.removeLayer(id);
-    if (map.getSource(id)) map.removeSource(id);
     map.addSource(id, {
       type: "geojson",
       data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: route.coords } },

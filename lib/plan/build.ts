@@ -17,6 +17,7 @@ import {
 import { geohash } from "@/lib/geohash";
 import { sha } from "@/lib/hash";
 import { getQuota, placesNear, qlooConfigured, quotaMode, resolveSampleIds } from "@/lib/qloo/client";
+import { formatMinutes } from "@/lib/format";
 import { DESIGN_POOL, designReroute, designWalk } from "@/lib/plan/design-walk";
 import { osrmConfigured, routeFoot, type Routed } from "@/lib/routing/osrm";
 import { demoClock, readContext } from "@/lib/weather/open-meteo";
@@ -95,6 +96,7 @@ async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean)
       userTags: profile.tags,
       rainy,
       evening: isEvening(input),
+      windowMin: input.budgetMin,
     });
     if (usable.length >= 25 || attempt === 2) break;
     if (attempt === 1) {
@@ -235,6 +237,7 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
     userTags: input.profile.tags,
     rainy: Boolean(context.weather?.isRainy),
     evening: isEvening(input),
+    windowMin: input.budgetMin,
   });
   const shape = input.shape ?? "loop";
   let chosen = selectStops(prepared, input.start, {
@@ -359,8 +362,8 @@ export async function rerouteWalk(input: {
     const next = previous.find((stop) => stop.state === "next");
     if (next) dropIds.push(next.entityId);
   }
-  let pool = input.pool ?? input.walk.pool;
-  if (!pool?.length) pool = (await cacheGet<Candidate[]>(input.walk.poolKey)) ?? [];
+  let pool: Candidate[] = input.pool ?? input.walk.pool ?? [];
+  if (!pool.length && input.walk.poolKey.startsWith("qp:")) pool = (await cacheGet<Candidate[]>(input.walk.poolKey)) ?? [];
   if (!pool.length) {
     const loaded = await loadCandidates(
       {
@@ -377,6 +380,7 @@ export async function rerouteWalk(input: {
     );
     pool = loaded.candidates;
   }
+  pool = pool.slice(0, 100);
   const elapsed = input.walk.startedAt
     ? Math.max(0, (Date.now() - new Date(input.walk.startedAt).getTime()) / 60_000)
     : 0;
@@ -397,6 +401,7 @@ export async function rerouteWalk(input: {
       userTags: input.profile.tags,
       rainy: false,
       evening: true,
+      windowMin: remaining,
     }),
     previous.filter((stop) => stop.state === "todo" || stop.state === "next").map((stop) => stop.entityId),
   );
@@ -462,9 +467,7 @@ function toastFrom(
   if (headingBack) return `Time to head back · ${Math.max(1, Math.round(returnMin))} min`;
   const added = stops.find((stop) => diff.added.includes(stop.entityId));
   const removed = diff.removed[0];
-  const hours = Math.floor(remaining / 60);
-  const mins = Math.round(remaining % 60);
-  const left = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+  const left = formatMinutes(remaining);
   if (added && removed) {
     return `Skipped a stop. Added ${added.name}, a ${added.affinity.toFixed(2)} match. Still ${left}.`;
   }

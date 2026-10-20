@@ -6,6 +6,7 @@ import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { useMinWidth } from "@/components/chrome/use-wide";
 import { TasteMap, type MapPin, type MapRoute } from "@/components/map/taste-map";
 import { readUiStream } from "@/lib/client/stream";
+import { formatMinutes } from "@/lib/format";
 import { haversineM, shouldOfferRide } from "@/lib/engine/core";
 import {
   EXPLORE_FRAME,
@@ -41,6 +42,11 @@ export function ExploreScreen() {
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [undoWalk, setUndoWalk] = useState<Walk | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(tick);
+  }, []);
   const [online, setOnline] = useState(true);
   const [fix, setFix] = useState<{ lat: number; lon: number } | null>(null);
   const [liveStops, setLiveStops] = useState<Stop[]>([]);
@@ -246,10 +252,17 @@ export function ExploreScreen() {
   }
 
   const center: [number, number] = user ?? [-97.743, 30.267];
+  // Time left is the budget minus time since the walk was planned. remainingMin
+  // is the planned length, so it only stands in for the scripted demo walk.
+  const elapsedMin = walk?.startedAt ? Math.max(0, (now - Date.parse(walk.startedAt)) / 60_000) : 0;
   const minutesLeft = walk?.headingBack
     ? (walk.returnMin ?? returnMin)
-    : (walk?.remainingMin ?? walk?.budgetMin ?? budget?.minutes ?? 0);
-  const leftLabel = formatLeft(minutesLeft ?? 0);
+    : walk?.isDemo
+      ? (walk.remainingMin ?? walk.budgetMin)
+      : walk
+        ? Math.max(0, walk.budgetMin - elapsedMin)
+        : (budget?.minutes ?? 0);
+  const leftLabel = formatMinutes(minutesLeft ?? 0);
   const sheetH = walk?.headingBack ? 248 : listed ? (returnMin > 0 ? 360 : 300) : planning && !next ? 220 : 316;
 
   return (
@@ -683,11 +696,4 @@ function hoursLabel(stop: Stop): string {
   hour = hour % 12 || 12;
   const clock = minute ? `${hour}:${String(minute).padStart(2, "0")}${suffix}` : `${hour}${suffix}`;
   return stop.closingSoon ? `Closing soon · till ${clock}` : `Open till ${clock}`;
-}
-
-function formatLeft(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
-  if (h <= 0) return `${m}m`;
-  return `${h}h ${m.toString().padStart(2, "0")}m`;
 }
