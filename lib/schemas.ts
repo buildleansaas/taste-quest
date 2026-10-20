@@ -81,9 +81,19 @@ export const rerouteSchema = z.object({
       .optional(),
     returnMin: z.number().optional(),
     headingBack: z.boolean().optional(),
+    alternatives: z.array(z.unknown()).max(30).optional(),
   }),
   fix: z.object({ lat: z.number(), lon: z.number() }),
-  reason: z.enum(["initial", "offroute", "skip", "veto", "late", "closed", "weather"]),
+  reason: z.enum(["initial", "offroute", "skip", "veto", "late", "closed", "weather", "edit"]),
+  edit: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("add"), id: z.string().min(1).max(200) }),
+      z.object({ kind: z.literal("swap"), id: z.string().min(1).max(200), replace: z.string().min(1).max(200) }),
+      z.object({ kind: z.literal("remove"), id: z.string().min(1).max(200) }),
+      z.object({ kind: z.literal("order"), ids: z.array(z.string().min(1).max(200)).max(20) }),
+      z.object({ kind: z.literal("start"), lat: z.number().gte(-90).lte(90), lon: z.number().gte(-180).lte(180) }),
+    ])
+    .optional(),
   tz: z.string().max(80).optional(),
 });
 

@@ -1,6 +1,9 @@
 import { explainBlurb, templateBlurb } from "@/lib/agent/blurb";
 import { cacheGet, cacheSet, TTL } from "@/lib/cache";
 import {
+  alternativesFor,
+  cheapestInsertion,
+  haversineM,
   closesWithin,
   diffRoutes,
   isOpenAt,
@@ -13,6 +16,7 @@ import {
   walkMinutes,
   withStability,
   type ChosenStop,
+  type Scored,
 } from "@/lib/engine/core";
 import { geohash } from "@/lib/geohash";
 import { sha } from "@/lib/hash";
@@ -32,6 +36,7 @@ import type {
   Stop,
   TasteProfile,
   Walk,
+  WalkEdit,
   WalkRoute,
   WalkVersion,
 } from "@/lib/types";
@@ -293,6 +298,7 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
     returnMin,
     headingBack: false,
     remainingMin: Math.round(Math.min(input.budgetMin, total)),
+    alternatives: alternativesFor(prepared, chosen, input.start, terminusFor(input.start, shape, input.end), input.pace),
   };
 }
 
@@ -348,8 +354,26 @@ export async function rerouteWalk(input: {
   reason: RerouteReason;
   pool?: Candidate[];
   tz?: string;
+  edit?: WalkEdit;
 }): Promise<{ walk: Walk; diff: ReturnType<typeof diffRoutes>; toast: string }> {
-  if (input.walk.poolKey === DESIGN_POOL && input.walk.mock && input.reason === "skip") {
+  const edit = input.edit;
+  let reloadPool = false;
+  if (edit?.kind === "start") {
+    // Moving the start re-plans from the new spot, as a loop back to it. The
+    // pool came from around the old start, so a far move fetches a new one.
+    reloadPool = haversineM(input.walk.start, edit) > 1200;
+    input = {
+      ...input,
+      fix: { lat: edit.lat, lon: edit.lon },
+      walk: { ...input.walk, start: { ...input.walk.start, lat: edit.lat, lon: edit.lon, label: "Dropped pin", source: "pin" } },
+      pool: reloadPool ? [] : input.pool,
+    };
+    if (reloadPool) input.walk = { ...input.walk, pool: [], poolKey: "" };
+  }
+  // The scripted re-route only fits the untouched design walk. After a hand
+  // edit (version > 1) a Skip runs the real engine so the edits are kept.
+  // Undo back to version 1 brings the scripted beat back.
+  if (input.walk.poolKey === DESIGN_POOL && input.walk.mock && input.reason === "skip" && input.walk.currentVersion === 1) {
     const scripted = designReroute(input.walk);
     const previous = input.walk.versions[input.walk.versions.length - 1]?.stops ?? [];
     const nextStops = scripted.walk.versions[scripted.walk.versions.length - 1]?.stops ?? [];
@@ -374,6 +398,8 @@ export async function rerouteWalk(input: {
     const next = previous.find((stop) => stop.state === "next");
     if (next) dropIds.push(next.entityId);
   }
+  if (edit?.kind === "remove") dropIds.push(edit.id);
+  if (edit?.kind === "swap") dropIds.push(edit.replace);
   let pool: Candidate[] = input.pool ?? input.walk.pool ?? [];
   if (!pool.length && input.walk.poolKey.startsWith("qp:")) pool = (await cacheGet<Candidate[]>(input.walk.poolKey)) ?? [];
   if (!pool.length) {
@@ -391,6 +417,7 @@ export async function rerouteWalk(input: {
       false,
     );
     pool = loaded.candidates;
+    input.walk = { ...input.walk, poolKey: loaded.poolKey };
   }
   pool = pool.slice(0, 100);
   const elapsed = input.walk.startedAt
@@ -417,7 +444,11 @@ export async function rerouteWalk(input: {
     }),
     previous.filter((stop) => stop.state === "todo" || stop.state === "next").map((stop) => stop.entityId),
   );
-  const chosen = headingBack
+  const manual = edit && edit.kind !== "start" ? editedSequence(prepared, previous, dropIds, edit, input.fix, terminus, input.walk.pace) : null;
+  if (manual) headingBack = false;
+  const chosen = manual
+    ? manual
+    : headingBack
     ? []
     : selectStops(prepared, input.fix, {
         budgetMin: remaining,
@@ -459,14 +490,134 @@ export async function rerouteWalk(input: {
   const walk: Walk = {
     ...input.walk,
     currentVersion: versionNumber,
-    versions: [...input.walk.versions, version],
+    // Keep the request small and under the schema's 50-version cap, however
+    // many edits a session makes.
+    versions: [...input.walk.versions, version].slice(-20),
     pool,
     shape,
     returnMin,
     headingBack,
     remainingMin: headingBack ? returnMin : Math.round(Math.min(remainingRaw || input.walk.budgetMin, plannedLeft)),
+    alternatives: headingBack ? [] : alternativesFor(prepared, chosen, input.fix, terminus, input.walk.pace),
   };
-  return { walk, diff, toast: toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin) };
+  const toast = edit
+    ? editToast(
+        edit,
+        previous,
+        chosen,
+        prepared,
+        plannedLeft,
+        // Before the edit: the route's walking plus time at stops still ahead.
+        // totals.dwellMin also counts visited and skipped stops.
+        current
+          ? current.totals.walkMin +
+              previous.filter((stop) => stop.state === "todo" || stop.state === "next").reduce((sum, stop) => sum + stop.dwellMin, 0)
+          : plannedLeft,
+        remainingRaw,
+      )
+    : toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin);
+  return { walk, diff, toast };
+}
+
+export class EditError extends Error {
+  code = "edit";
+}
+
+/**
+ * The walk after a hand edit. Only what the user touched changes: the other
+ * stops keep their order, an added place goes where it costs the least, and a
+ * swap takes the replaced stop's slot. The budget is not enforced here; the
+ * toast says when the walk now runs over.
+ */
+function editedSequence(
+  prepared: Scored[],
+  previous: Stop[],
+  dropIds: string[],
+  edit: Exclude<WalkEdit, { kind: "start" }>,
+  start: LatLon,
+  terminus: LatLon | null,
+  pace: Pace,
+): ChosenStop[] {
+  const byId = new Map(prepared.map((cand) => [cand.entityId, cand]));
+  const upcomingStops = previous.filter((stop) => stop.state === "todo" || stop.state === "next");
+  const upcoming = upcomingStops.map((stop) => stop.entityId);
+  let ids = upcoming.filter((id) => !dropIds.includes(id));
+  if (edit.kind === "order") {
+    const wanted = [...new Set(edit.ids)].filter((id) => ids.includes(id));
+    ids = [...wanted, ...ids.filter((id) => !wanted.includes(id))];
+  }
+  // A stop the user didn't touch stays even if the pool no longer scores it
+  // (closed by the live clock, deduped, or trimmed from the stored pool).
+  const keep = (id: string): Scored | undefined => {
+    const scored = byId.get(id);
+    if (scored) return scored;
+    const stop = upcomingStops.find((item) => item.entityId === id);
+    return stop ? stopAsScored(stop) : undefined;
+  };
+  let seq = ids.map(keep).filter((cand): cand is Scored => Boolean(cand));
+  if ((edit.kind === "add" || edit.kind === "swap") && !seq.some((cand) => cand.entityId === edit.id)) {
+    const cand = byId.get(edit.id);
+    if (!cand) throw new EditError("That place is closed then or can't be added to this walk.");
+    const at =
+      edit.kind === "swap"
+        ? Math.min(Math.max(0, upcoming.indexOf(edit.replace)), seq.length)
+        : cheapestInsertion(seq, cand, start, terminus, pace).index;
+    seq = [...seq.slice(0, at), cand, ...seq.slice(at)];
+  }
+  return seq.map((cand) => ({ ...cand, ratio: 0 }));
+}
+
+function stopAsScored(stop: Stop): Scored {
+  return {
+    entityId: stop.entityId,
+    name: stop.name,
+    lat: stop.lat,
+    lon: stop.lon,
+    affinity: stop.affinity,
+    address: stop.address,
+    category: stop.category,
+    categoryLabel: stop.categoryLabel,
+    tags: [],
+    hours: stop.hours,
+    neighborhood: stop.neighborhood,
+    imageUrl: stop.imageUrl,
+    entityShares: stop.evidence.entityShares,
+    sample: stop.sample,
+    baseScore: 0,
+    tagOverlap: stop.evidence.tagOverlap,
+    dwellMin: stop.dwellMin,
+  };
+}
+
+function editToast(
+  edit: WalkEdit,
+  previous: Stop[],
+  chosen: ChosenStop[],
+  prepared: Scored[],
+  plannedMin: number,
+  previousMin: number,
+  leftMin: number,
+): string {
+  const nameOf = (id: string) =>
+    previous.find((stop) => stop.entityId === id)?.name ?? prepared.find((cand) => cand.entityId === id)?.name ?? "that stop";
+  const what =
+    edit.kind === "add"
+      ? `Added ${nameOf(edit.id)}.`
+      : edit.kind === "swap"
+        ? `Swapped ${nameOf(edit.replace)} for ${nameOf(edit.id)}.`
+        : edit.kind === "remove"
+          ? `Removed ${nameOf(edit.id)}.`
+          : edit.kind === "order"
+            ? "Reordered your walk."
+            : `Moved your start and re-planned ${chosen.length} stop${chosen.length === 1 ? "" : "s"} from there.`;
+  // plannedMin includes the walk home. Warn only when this edit adds time and
+  // the walk then runs past the time left, so a reorder never scolds.
+  const delta = Math.round(plannedMin - previousMin);
+  const over = Math.round(plannedMin - leftMin);
+  if (over > 2 && delta > 2) return `${what} That runs ${formatMinutes(over)} over your time. Remove a stop or tap Undo.`;
+  if (delta > 2) return `${what} Adds ${formatMinutes(delta)}.`;
+  if (delta < -2) return `${what} Saves ${formatMinutes(-delta)}.`;
+  return what;
 }
 
 function toastFrom(
