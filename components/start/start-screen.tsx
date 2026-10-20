@@ -12,7 +12,7 @@ const Picker = dynamic(() => import("@/components/start/map-picker").then((mod) 
 
 const CARDS: { mode: BudgetMode; title: string; hint: string; icon: "clock" | "moon" | "sun" }[] = [
   { mode: "1h", title: "1 hr", hint: "2–3 stops", icon: "clock" },
-  { mode: "2h", title: "2 hrs", hint: "4 stops · 1.5 km", icon: "clock" },
+  { mode: "2h", title: "2 hrs", hint: "2–4 stops", icon: "clock" },
   { mode: "tonight", title: "Tonight", hint: "Until midnight", icon: "moon" },
   { mode: "allday", title: "All day", hint: "6–8 stops", icon: "sun" },
 ];
@@ -243,13 +243,18 @@ export function StartScreen() {
                 <circle cx="10" cy="8" r="2" fill="#78828c" />
               </svg>
             </span>
-            <span style={{ flex: 1, fontSize: 15 }}>Pick a spot on the map</span>
+            <span style={{ flex: 1 }}>
+              <span style={{ display: "block", fontSize: 15, fontWeight: source === "pin" ? 600 : 400, color: source === "pin" ? "var(--color-ink)" : undefined }}>
+                {source === "pin" ? "Starting at your pin" : "Pick a spot on the map"}
+              </span>
+              {source === "pin" ? <span style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>{label} · tap to move it</span> : null}
+            </span>
             <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M7.5 4l6 6-6 6" fill="none" stroke="#a0aab4" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
           </button>
         </div>
-        {gps === "denied" && source !== "demo" ? (
+        {(gps === "denied" || lat == null) && source !== "demo" ? (
           <button type="button" className="btn btn-cream" style={{ marginTop: 12 }} onClick={useDemoStart}>
             Use Austin demo start
           </button>

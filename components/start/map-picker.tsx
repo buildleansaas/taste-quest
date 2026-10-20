@@ -30,12 +30,12 @@ export function MapPicker({
           pins={[{ n: "", ll: [point.lon, point.lat], cls: "next", color: "#8c8cc8" }]}
         />
       </div>
-      <div className="sheet" style={{ height: 168 }}>
+      <div className="sheet" style={{ height: "calc(206px + var(--sab))" }}>
         <div className="grabber" />
         <div style={{ padding: 20 }}>
           <div style={{ fontWeight: 600 }}>Drop a pin</div>
           <div style={{ fontSize: 13, color: "var(--color-slate-dim)", marginTop: 4 }}>
-            {point.lat.toFixed(4)}, {point.lon.toFixed(4)}
+            Tap the map where you want to start · {point.lat.toFixed(4)}, {point.lon.toFixed(4)}
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
             <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onClose}>
@@ -45,7 +45,7 @@ export function MapPicker({
               Start here
             </button>
           </div>
-          <button type="button" onClick={onDemo} style={{ marginTop: 8, background: "none", border: 0, color: "var(--color-slate)", width: "100%" }}>
+          <button type="button" onClick={onDemo} style={{ marginTop: 10, height: 36, background: "none", border: 0, color: "var(--color-slate)", width: "100%" }}>
             Use Austin demo start
           </button>
         </div>
