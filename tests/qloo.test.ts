@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { guardBlurb, templateBlurb } from "@/lib/agent/blurb";
-import { normalizeEntities, normalizeTags } from "@/lib/qloo/normalize";
+import { categoryFromTags, normalizeEntities, normalizeTags } from "@/lib/qloo/normalize";
 import { quotaMode } from "@/lib/qloo/client";
 import { pickBestTag, tagPriority } from "@/lib/taste/curated";
 
@@ -94,5 +94,86 @@ describe("fixtures", () => {
     const sample = readFileSync(new URL("../lib/qloo/sample.ts", import.meta.url), "utf8");
     expect(sample).not.toContain("images.qloo.com");
     expect(sample).not.toContain("hackathon.api.qloo.com");
+  });
+});
+
+describe("categoryFromTags", () => {
+  const cat = (name: string) => ({ id: `urn:tag:category:place:${name.toLowerCase().replace(/ /g, "_")}`, name, type: "urn:tag:category:place" });
+  const tag = (kind: string, name: string) => ({ id: `urn:tag:${kind}:qloo:${name.toLowerCase().replace(/ /g, "_")}`, name, type: `urn:tag:${kind}:qloo` });
+
+  it("uses Qloo's category tag before loose tag text", () => {
+    expect(categoryFromTags([tag("amenity", "Parking lot"), cat("Cathedral")], "Saint Mary Catholic Cathedral")).toEqual({ category: "sight", label: "Cathedral" });
+    expect(categoryFromTags([cat("Bar"), tag("setting", "Garden")], "Bacchanal").category).toBe("bar");
+    expect(categoryFromTags([cat("Art museum")], "Puppet Museum")).toEqual({ category: "museum", label: "Art museum" });
+  });
+
+  it("never calls a place a park because of parking or a rooftop", () => {
+    const ember = [tag("offerings", "Coffee"), tag("amenity", "Full bar"), tag("amenity", "Parking")];
+    expect(categoryFromTags(ember, "Ember Kitchen").category).toBe("restaurant");
+    expect(categoryFromTags([tag("amenity", "Rooftop deck"), tag("amenity", "Free parking")], "Brazos Hall")).toEqual({ category: "default", label: "Place" });
+  });
+
+  it("reads the name when there is no category tag", () => {
+    expect(categoryFromTags([], "Antikuario Cafe").category).toBe("cafe");
+    expect(categoryFromTags([], "Miradouro de Santa Catarina").category).toBe("park");
+  });
+});
+
+describe("Qloo slot limiter", () => {
+  it("lets a 5th call through after the 1-second window, with nothing in flight", async () => {
+    const { acquireQlooSlot, releaseQlooSlot } = await import("@/lib/qloo/client");
+    for (let i = 0; i < 4; i += 1) {
+      await acquireQlooSlot();
+      releaseQlooSlot();
+    }
+    const started = Date.now();
+    await acquireQlooSlot();
+    releaseQlooSlot();
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+});
+
+describe("review round 1 (PR #23)", () => {
+  it("matches accented words and bar-named cafes and restaurants", () => {
+    expect(categoryFromTags([], "Café Tortoni").category).toBe("cafe");
+    expect(categoryFromTags([{ id: "urn:tag:category:place:sushi_bar", name: "Sushi bar", type: "urn:tag:category:place" }], "Uchi").category).toBe("restaurant");
+    expect(categoryFromTags([{ id: "urn:tag:category:place:espresso_bar", name: "Espresso bar", type: "urn:tag:category:place" }], "Houndstooth").category).toBe("cafe");
+  });
+
+  it("keeps category tags after the 12-tag trim", () => {
+    const context = Array.from({ length: 20 }, (_, i) => ({ id: `urn:tag:amenity:qloo:a${i}`, name: `Amenity ${i}`, type: "urn:tag:amenity:qloo" }));
+    const payload = {
+      results: {
+        entities: [
+          {
+            entity_id: "e1",
+            name: "Some Place",
+            query: { affinity: 0.8 },
+            location: { lat: 30.27, lon: -97.74 },
+            tags: [...context, { id: "urn:tag:category:place:coworking_space", name: "Coworking space", type: "urn:tag:category:place" }],
+          },
+        ],
+      },
+    };
+    const [place] = normalizeEntities(payload, new Map());
+    expect(place?.tags.some((tag) => tag.id.includes("category:place"))).toBe(true);
+  });
+});
+
+describe("OSRM fallback log", () => {
+  it("never logs the router base URL", async () => {
+    const { vi } = await import("vitest");
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => {
+      logs.push(String(line));
+    });
+    const prev = process.env.OSRM_BASE_URL;
+    process.env.OSRM_BASE_URL = "not a url secret-token-123";
+    const { routeFoot } = await import("@/lib/routing/osrm");
+    const routed = await routeFoot([{ lat: 30.26, lon: -97.74 }, { lat: 30.27, lon: -97.75 }], "easy");
+    process.env.OSRM_BASE_URL = prev;
+    spy.mockRestore();
+    expect(routed.approximate).toBe(true);
+    expect(logs.join("\n")).not.toContain("secret-token-123");
   });
 });

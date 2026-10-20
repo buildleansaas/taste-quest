@@ -14,16 +14,48 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function categoryFromTags(tags: PlaceTag[], name: string): { category: string; label: string } {
-  const blob = `${name} ${tags.map((tag) => `${tag.id} ${tag.name}`).join(" ")}`.toLowerCase();
-  if (/live_music|nightclub|music venue/.test(blob)) return { category: "live_music", label: "Live music" };
-  if (/museum|gallery/.test(blob)) return { category: "museum", label: "Museum" };
-  if (/park|trail|garden/.test(blob)) return { category: "park", label: "Park" };
-  if (/cafe|coffee/.test(blob)) return { category: "cafe", label: "Cafe" };
-  if (/taco|restaurant|dining/.test(blob)) return { category: "restaurant", label: "Restaurant" };
-  if (/bar|wine|cocktail/.test(blob)) return { category: "bar", label: "Bar" };
-  const categoryTag = tags.find((tag) => tag.type?.includes("category:place") || tag.id.includes("category:place"));
-  return { category: "default", label: categoryTag?.name ?? "Place" };
+const CATEGORY_RULES: { category: string; label: string; test: RegExp }[] = [
+  { category: "live_music", label: "Live music", test: /(?<![\p{L}\p{N}])(live music|music venue|concert hall|night ?club|jazz club|blues club)(?![\p{L}\p{N}])/u },
+  { category: "museum", label: "Museum", test: /(?<![\p{L}\p{N}])(museum|museu|gallery|exhibit)(?![\p{L}\p{N}])/u },
+  { category: "cafe", label: "Cafe", test: /(?<![\p{L}\p{N}])(cafe|café|coffee|coffeehouse|bakery|tea house)(?![\p{L}\p{N}])/u },
+  { category: "cafe", label: "Cafe", test: /(?<![\p{L}\p{N}])(espresso bar|juice bar|tea room)(?![\p{L}\p{N}])/u },
+  { category: "restaurant", label: "Restaurant", test: /(?<![\p{L}\p{N}])(sushi bar|oyster bar|tapas bar|raw bar|bar & grill|bar and grill)(?![\p{L}\p{N}])/u },
+  { category: "bar", label: "Bar", test: /(?<![\p{L}\p{N}])(bar|pub|lounge|brewery|taproom|wine bar|cocktail|speakeasy|tavern)(?![\p{L}\p{N}])/u },
+  { category: "restaurant", label: "Restaurant", test: /(?<![\p{L}\p{N}])(restaurant|kitchen|diner|eatery|bistro|taqueria|tacos?|pizzeria|steakhouse|bbq|barbecue)(?![\p{L}\p{N}])/u },
+  { category: "park", label: "Park", test: /(?<![\p{L}\p{N}])(park|garden|gardens|trail|viewpoint|miradouro|plaza|square|lake)(?![\p{L}\p{N}])/u },
+  { category: "shop", label: "Shop", test: /(?<![\p{L}\p{N}])(store|shop|boutique|market|bookstore|book store|record store)(?![\p{L}\p{N}])/u },
+  { category: "sight", label: "Sight", test: /(?<![\p{L}\p{N}])(tourist attraction|landmark|monument|statue|cathedral|church|igreja|chapel|historical|memorial|library|cemetery|art center)(?![\p{L}\p{N}])/u },
+];
+
+function classify(text: string): { category: string; label: string } | undefined {
+  const lower = text.toLowerCase();
+  return CATEGORY_RULES.find((rule) => rule.test.test(lower));
+}
+
+function isCategoryTag(tag: PlaceTag): boolean {
+  return Boolean(tag.type?.includes("category:place") || tag.id.includes("category:place"));
+}
+
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+// Qloo tags each place with explicit category tags (urn:tag:category:place:*),
+// such as "Cathedral" or "Leather goods store". Those decide first, then the
+// name, then other tag names. Whole words only: "parking" is not a park.
+export function categoryFromTags(tags: PlaceTag[], name: string): { category: string; label: string } {
+  const categoryTags = tags.filter(isCategoryTag);
+  for (const tag of categoryTags) {
+    const hit = classify(tag.name);
+    if (hit) return { category: hit.category, label: titleCase(tag.name) };
+  }
+  const byName = classify(name);
+  if (byName) return byName;
+  const label = categoryTags[0] ? titleCase(categoryTags[0].name) : undefined;
+  if (label) return { category: "default", label };
+  const byTags = classify(tags.map((tag) => tag.name).join(" · "));
+  if (byTags && byTags.category !== "park") return byTags;
+  return { category: "default", label: "Place" };
 }
 
 function readHours(value: unknown): PlaceHours | undefined {
@@ -126,7 +158,9 @@ export function normalizeEntities(
       shortDescription: asString(properties?.short_description) ?? asString(properties?.description),
       category: classified.category,
       categoryLabel: classified.label,
-      tags: tags.slice(0, 12),
+      // Category tags first, so the engine's category-only checks still see
+      // them after the 12-tag trim (Qloo often lists them after amenities).
+      tags: [...tags.filter(isCategoryTag), ...tags.filter((tag) => !isCategoryTag(tag))].slice(0, 12),
       hours: readHours(properties?.hours),
       isClosed: properties?.is_closed === true,
       neighborhood: asString(properties?.neighborhood),

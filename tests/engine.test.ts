@@ -337,7 +337,7 @@ describe("loop and order", () => {
       lat: 30.271,
       lon: -97.7396,
       category: "cafe",
-      tags: [{ id: "dessert", name: "Dessert" }],
+      tags: [{ id: "urn:tag:category:place:dessert_shop", name: "Dessert shop", type: "urn:tag:category:place" }],
       baseScore: 1.4,
       dwellMin: 20,
     });
@@ -461,5 +461,53 @@ describe("review fixes", () => {
     expect(formatMinutes(59.7)).toBe("1h 00m");
     expect(formatMinutes(91)).toBe("1h 31m");
     expect(formatMinutes(27)).toBe("27m");
+  });
+});
+
+describe("live tag noise", () => {
+  const ctx = (kind: string, name: string) => ({ id: `urn:tag:${kind}:qloo:${name.toLowerCase()}`, name, type: `urn:tag:${kind}:qloo` });
+  it("ignores context tags when deciding the part of day", () => {
+    const cathedral = scored({ entityId: "c", lat: 30.27, lon: -97.742, category: "sight", tags: [ctx("nearby_attraction", "Dessert"), ctx("planning", "Dinner reservations")] });
+    expect(orderNoteFor(cathedral.category, cathedral.tags, 10 * 60 + 30)).not.toMatch(/nightcap|dinner/i);
+  });
+  it("skips places nobody walks to", () => {
+    const office: Candidate = { ...SAMPLE_PLACES[0], entityId: "office", name: "Capital Factory", categoryLabel: "Coworking space", tags: [] };
+    expect(prepareCandidates([office], { departAt: evening, weekday: saturday, pace: "easy", dropIds: [], userTags: [], rainy: false, evening: true, windowMin: 600 })).toHaveLength(0);
+  });
+});
+
+describe("deny list", () => {
+  it("keeps a place that merely offers parking", () => {
+    const cafe: Candidate = {
+      ...SAMPLE_PLACES[0],
+      entityId: "voodoo",
+      name: "Voodoo Doughnut",
+      categoryLabel: "Donut shop",
+      tags: [{ id: "urn:tag:amenity:qloo:parking", name: "Parking", type: "urn:tag:amenity:qloo" }],
+      hours: undefined,
+    };
+    const lot: Candidate = { ...cafe, entityId: "lot", name: "Lot 5", categoryLabel: "Parking lot", tags: [{ id: "urn:tag:category:place:parking_lot", name: "Parking lot", type: "urn:tag:category:place" }] };
+    const kept = prepareCandidates([cafe, lot], { departAt: evening, weekday: saturday, pace: "easy", dropIds: [], userTags: [], rainy: false, evening: true });
+    expect(kept.map((c) => c.entityId)).toEqual(["voodoo"]);
+  });
+});
+
+describe("review round 1 (PR #23)", () => {
+  const base = { weekday: saturday, pace: "easy" as const, dropIds: [], userTags: [], evening: false, departAt: evening };
+  it("does not treat a parking amenity as outdoor in the rain", () => {
+    const cafe: Candidate = { ...SAMPLE_PLACES[0], entityId: "v", category: "cafe", categoryLabel: "Donut shop", hours: undefined, tags: [{ id: "urn:tag:amenity:qloo:parking", name: "Parking", type: "urn:tag:amenity:qloo" }] };
+    const dry = prepareCandidates([cafe], { ...base, rainy: false })[0]!.baseScore;
+    const wet = prepareCandidates([cafe], { ...base, rainy: true })[0]!.baseScore;
+    expect(wet).toBe(dry);
+  });
+  it("keeps a brewery that is also a wedding venue", () => {
+    const brewery: Candidate = {
+      ...SAMPLE_PLACES[0], entityId: "b", category: "bar", categoryLabel: "Brewery", hours: undefined,
+      tags: [
+        { id: "urn:tag:category:place:brewery", name: "Brewery", type: "urn:tag:category:place" },
+        { id: "urn:tag:category:place:wedding_venue", name: "Wedding venue", type: "urn:tag:category:place" },
+      ],
+    };
+    expect(prepareCandidates([brewery], { ...base, rainy: false })).toHaveLength(1);
   });
 });

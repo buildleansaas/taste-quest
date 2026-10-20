@@ -37,6 +37,7 @@ type Slot = () => void;
 const recent: number[] = [];
 let inFlight = 0;
 const waiters: Slot[] = [];
+let wake: ReturnType<typeof setTimeout> | null = null;
 
 function pump(): void {
   const now = Date.now();
@@ -47,6 +48,15 @@ function pump(): void {
     recent.push(Date.now());
     inFlight += 1;
     next();
+  }
+  // Blocked only by the 1-second window: with no call in flight, nothing else
+  // calls pump() again, so wake when the oldest slot expires. Without this a
+  // 5th call within one second waited until the 60s function timeout.
+  if (waiters.length && inFlight < 3 && recent.length >= 4 && !wake) {
+    wake = setTimeout(() => {
+      wake = null;
+      pump();
+    }, Math.max(1, 1000 - (now - recent[0])));
   }
 }
 
@@ -112,6 +122,7 @@ async function qlooFetch(
         },
         body: init?.body ? JSON.stringify(init.body) : undefined,
         cache: "no-store",
+        signal: AbortSignal.timeout(8000),
       });
       await rememberQuota(response.headers);
       const requestId = response.headers.get("x-qloo-request-id");

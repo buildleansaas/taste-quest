@@ -7,7 +7,7 @@ import type { LatLon, Pace, WalkRoute } from "@/lib/types";
 export type Routed = WalkRoute & { km: number; walkMin: number };
 
 export function osrmConfigured(): boolean {
-  return Boolean(process.env.OSRM_BASE_URL);
+  return Boolean(process.env.OSRM_BASE_URL?.trim());
 }
 
 export function straightRoute(points: LatLon[], pace: Pace): Routed {
@@ -43,7 +43,8 @@ type OsrmResponse = {
 
 export async function routeFoot(points: LatLon[], pace: Pace): Promise<Routed> {
   if (points.length < 2) return straightRoute(points, pace);
-  const base = process.env.OSRM_BASE_URL?.replace(/\/$/, "");
+  // Trim: a value pasted from the clipboard can carry a trailing newline.
+  const base = process.env.OSRM_BASE_URL?.trim().replace(/\/$/, "");
   if (!base) return straightRoute(points, pace);
 
   const rounded = points.map((point) => `${point.lon.toFixed(5)},${point.lat.toFixed(5)}`).join(";");
@@ -80,7 +81,8 @@ export async function routeFoot(points: LatLon[], pace: Pace): Promise<Routed> {
   } catch (error) {
     log("warn", "osrm-fallback", {
       latencyMs: Date.now() - started,
-      error: error instanceof Error ? error.message : String(error),
+      // The base URL carries the router's auth token, so never log it.
+      error: (error instanceof Error ? error.message : String(error)).split(base).join("<OSRM_BASE_URL>"),
     });
     return straightRoute(points, pace);
   }
