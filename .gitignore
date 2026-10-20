@@ -1,5 +1,6 @@
 node_modules/
 .next/
+tsconfig.tsbuildinfo
 .vercel/
 .env*
 !.env.example
@@ -7,3 +8,4 @@ node_modules/
 research/
 vendor/
 *.qloo.json
+.vercel
