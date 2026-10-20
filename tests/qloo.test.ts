@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { guardBlurb, templateBlurb } from "@/lib/agent/blurb";
-import { normalizeEntities, normalizeTags } from "@/lib/qloo/normalize";
+import { categoryFromTags, normalizeEntities, normalizeTags } from "@/lib/qloo/normalize";
 import { quotaMode } from "@/lib/qloo/client";
 import { pickBestTag, tagPriority } from "@/lib/taste/curated";
 
@@ -94,5 +94,27 @@ describe("fixtures", () => {
     const sample = readFileSync(new URL("../lib/qloo/sample.ts", import.meta.url), "utf8");
     expect(sample).not.toContain("images.qloo.com");
     expect(sample).not.toContain("hackathon.api.qloo.com");
+  });
+});
+
+describe("categoryFromTags", () => {
+  const cat = (name: string) => ({ id: `urn:tag:category:place:${name.toLowerCase().replace(/ /g, "_")}`, name, type: "urn:tag:category:place" });
+  const tag = (kind: string, name: string) => ({ id: `urn:tag:${kind}:qloo:${name.toLowerCase().replace(/ /g, "_")}`, name, type: `urn:tag:${kind}:qloo` });
+
+  it("uses Qloo's category tag before loose tag text", () => {
+    expect(categoryFromTags([tag("amenity", "Parking lot"), cat("Cathedral")], "Saint Mary Catholic Cathedral")).toEqual({ category: "default", label: "Cathedral" });
+    expect(categoryFromTags([cat("Bar"), tag("setting", "Garden")], "Bacchanal").category).toBe("bar");
+    expect(categoryFromTags([cat("Art museum")], "Puppet Museum")).toEqual({ category: "museum", label: "Art museum" });
+  });
+
+  it("never calls a place a park because of parking or a rooftop", () => {
+    const ember = [tag("offerings", "Coffee"), tag("amenity", "Full bar"), tag("amenity", "Parking")];
+    expect(categoryFromTags(ember, "Ember Kitchen").category).toBe("restaurant");
+    expect(categoryFromTags([tag("amenity", "Rooftop deck"), tag("amenity", "Free parking")], "Brazos Hall")).toEqual({ category: "default", label: "Place" });
+  });
+
+  it("reads the name when there is no category tag", () => {
+    expect(categoryFromTags([], "Antikuario Cafe").category).toBe("cafe");
+    expect(categoryFromTags([], "Miradouro de Santa Catarina").category).toBe("park");
   });
 });

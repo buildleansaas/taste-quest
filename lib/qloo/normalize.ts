@@ -14,16 +14,40 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function categoryFromTags(tags: PlaceTag[], name: string): { category: string; label: string } {
-  const blob = `${name} ${tags.map((tag) => `${tag.id} ${tag.name}`).join(" ")}`.toLowerCase();
-  if (/live_music|nightclub|music venue/.test(blob)) return { category: "live_music", label: "Live music" };
-  if (/museum|gallery/.test(blob)) return { category: "museum", label: "Museum" };
-  if (/park|trail|garden/.test(blob)) return { category: "park", label: "Park" };
-  if (/cafe|coffee/.test(blob)) return { category: "cafe", label: "Cafe" };
-  if (/taco|restaurant|dining/.test(blob)) return { category: "restaurant", label: "Restaurant" };
-  if (/bar|wine|cocktail/.test(blob)) return { category: "bar", label: "Bar" };
-  const categoryTag = tags.find((tag) => tag.type?.includes("category:place") || tag.id.includes("category:place"));
-  return { category: "default", label: categoryTag?.name ?? "Place" };
+const CATEGORY_RULES: { category: string; label: string; test: RegExp }[] = [
+  { category: "live_music", label: "Live music", test: /\b(live music|music venue|concert hall|night ?club|jazz club|blues club)\b/ },
+  { category: "museum", label: "Museum", test: /\b(museum|museu|gallery|exhibit)\b/ },
+  { category: "cafe", label: "Cafe", test: /\b(cafe|café|coffee|coffeehouse|bakery|tea house)\b/ },
+  { category: "bar", label: "Bar", test: /\b(bar|pub|lounge|brewery|taproom|wine bar|cocktail|speakeasy|tavern)\b/ },
+  { category: "restaurant", label: "Restaurant", test: /\b(restaurant|kitchen|diner|eatery|bistro|taqueria|tacos?|pizzeria|steakhouse|bbq|barbecue)\b/ },
+  { category: "park", label: "Park", test: /\b(park|garden|gardens|trail|viewpoint|miradouro|plaza|square|lake)\b/ },
+];
+
+function classify(text: string): { category: string; label: string } | undefined {
+  const lower = text.toLowerCase();
+  return CATEGORY_RULES.find((rule) => rule.test.test(lower));
+}
+
+function titleCase(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+// Qloo tags each place with explicit category tags (urn:tag:category:place:*),
+// such as "Cathedral" or "Leather goods store". Those decide first, then the
+// name, then other tag names. Whole words only: "parking" is not a park.
+export function categoryFromTags(tags: PlaceTag[], name: string): { category: string; label: string } {
+  const categoryTags = tags.filter((tag) => tag.type?.includes("category:place") || tag.id.includes("category:place"));
+  for (const tag of categoryTags) {
+    const hit = classify(tag.name);
+    if (hit) return { category: hit.category, label: titleCase(tag.name) };
+  }
+  const byName = classify(name);
+  if (byName) return byName;
+  const label = categoryTags[0] ? titleCase(categoryTags[0].name) : undefined;
+  if (label) return { category: "default", label };
+  const byTags = classify(tags.map((tag) => tag.name).join(" · "));
+  if (byTags && byTags.category !== "park") return byTags;
+  return { category: "default", label: "Place" };
 }
 
 function readHours(value: unknown): PlaceHours | undefined {
