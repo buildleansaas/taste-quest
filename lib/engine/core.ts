@@ -25,13 +25,14 @@ const DWELL: Record<string, number> = {
   sight: 15,
 };
 
+const AFFINITY_SPREAD = 0.2;
 const OUTDOOR = /park|trail|rooftop|garden|outdoor|plaza/i;
 const EVENING = /nightlife|evening|live_music|bar|night/i;
 const DENY = /parking|hotel|lodging|nail|gas station|gas_station|\batm\b|car wash|hospital/i;
 // Places nobody walks to on a taste walk. Checked against the name and Qloo's
 // category tags only, since other tags ("near a college") are context.
 const NOT_A_STOP =
-  /\b(coworking|office|business school|school|college|university|academic|alumni|gym|fitness|crossfit|apartments?|furnished|wedding venue|convention center|tattoo|piercing|animal rescue|rowing club|boat club|dance class|corporate|bank|dentist|clinic|pharmacy|real estate)\b/i;
+  /\b(coworking|office|business school|school|college|university|academic|alumni|gym|fitness|crossfit|apartments?|furnished|wedding venue|convention center|tattoo|piercing|animal rescue|rowing club|boat club|dance class|corporate|bank|dentist|clinic|pharmacy|real estate|tour operator|tour agency|travel agency|car rental|boat rental)\b/i;
 
 export function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
@@ -322,7 +323,12 @@ export function prepareCandidates(
   const max = affinities.length ? Math.max(...affinities) : 1;
 
   return spaced.map((candidate) => {
-    const affinityNorm = max === min ? 1 : (candidate.affinity - min) / (max - min);
+    // Live Qloo affinities near one spot often sit within ~0.02 of each other.
+    // Min-max scaling stretched that to 0..1, so the route walked 1.5 km for a
+    // 0.01 better match. A minimum spread keeps near-equal matches near-equal
+    // and lets walking cost decide between them.
+    const spread = Math.max(max - min, AFFINITY_SPREAD);
+    const affinityNorm = clamp(1 - (max - candidate.affinity) / spread, 0, 1);
     const tagOverlap = overlap(candidate, opts.userTags);
     let score =
       affinityNorm ** 1.5 * (1 + 0.15 * tagOverlap.length);
