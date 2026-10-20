@@ -2,7 +2,11 @@
 
 import { usePathname } from "next/navigation";
 
-/** The phone status bar and home indicator from the design screens, so 390×844 lines up with the mockups. */
+/**
+ * Fake 9:41 status bar and home indicator from the design screens.
+ * Shown only when `?frame=1` (or `?shot=1`) sets `html[data-frame]`, so parity
+ * shots still line up. Real phones, including an installed PWA, use the system chrome.
+ */
 export function DeviceChrome() {
   const path = usePathname();
   const light = path === "/";

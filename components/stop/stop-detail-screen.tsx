@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
+import { useMinWidth } from "@/components/chrome/use-wide";
 import { STOP_FRAME, STOP_PAD, STOP_ZOOM_OUT } from "@/lib/map/austin-geometry";
 import { useQuest } from "@/store/use-quest";
 
@@ -24,6 +25,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
   const profile = useQuest((s) => s.profile);
   const setWalk = useQuest((s) => s.setWalk);
   const deviceId = useQuest((s) => s.deviceId);
+  const wide = useMinWidth(768);
 
   useEffect(() => {
     void hydrate();
@@ -86,9 +88,9 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
     : [{ n: stop.seq, ll: [stop.lon, stop.lat] as [number, number], cls: "next", label: shortName(stop.name), color: "#8c8cc8" }];
 
   return (
-    <main className="screen" style={{ minHeight: "100dvh", background: "var(--color-surface-raised)", overflow: "hidden" }}>
+    <main className="screen stop">
       <DeviceChrome />
-      <div style={{ height: 290, position: "relative" }}>
+      <div className="stop-map">
         <TasteMap
           className="map-fill"
           center={swan ? [-97.7364559, 30.2655328] : [stop.lon, stop.lat]}
@@ -96,12 +98,12 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
           pitch={40}
           bearing={-18}
           frame={swan ? STOP_FRAME : undefined}
-          pad={swan ? STOP_PAD : undefined}
-          zoomOut={swan ? STOP_ZOOM_OUT : 0.1}
+          pad={swan ? (wide ? { top: 72, bottom: 72, left: 48, right: 48 } : STOP_PAD) : undefined}
+          zoomOut={swan ? (wide ? -0.05 : STOP_ZOOM_OUT) : 0.1}
           routes={[{ coords: version.route.geometry.coordinates, dashed: version.route.approximate }]}
           pins={pins}
         />
-        <div style={{ position: "absolute", top: 58, left: 16, right: 16, display: "flex", justifyContent: "space-between", zIndex: 5 }}>
+        <div className="stop-map-controls">
           <button className="icon-btn" type="button" aria-label="Back" onClick={() => router.push("/explore")}>
             <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M12.5 4l-6 6 6 6" fill="none" stroke="#28323c" strokeWidth="1.8" strokeLinecap="round" />
@@ -114,9 +116,9 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
           </a>
         </div>
       </div>
-      <section className="sheet" style={{ top: 250, bottom: 0 }}>
+      <section className="sheet stop-sheet">
         <div className="grabber" />
-        <div style={{ padding: "14px 22px 120px" }}>
+        <div className="stop-sheet-body">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
             <div>
               <div className="eyebrow">
@@ -196,7 +198,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
             </>
           )}
         </div>
-        <div style={{ position: "absolute", left: 22, right: 22, bottom: 42, display: "flex", gap: 10 }}>
+        <div className="stop-actions">
           <button
             className="btn btn-cream"
             type="button"

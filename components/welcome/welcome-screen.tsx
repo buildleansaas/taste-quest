@@ -35,20 +35,9 @@ export function WelcomeScreen() {
   if (!hydrated) return <main className="screen" />;
 
   return (
-    <main className="screen">
+    <main className="screen welcome">
       <DeviceChrome />
-      <section
-        style={{
-          position: "relative",
-          margin: 8,
-          height: "min(560px, calc(100dvh - 250px))",
-          minHeight: 420,
-          borderRadius: "var(--radius-card)",
-          overflow: "hidden",
-          background: "#05070d",
-          color: "#fff",
-        }}
-      >
+      <section className="welcome-hero">
         <div
           aria-hidden="true"
           style={{
@@ -88,11 +77,12 @@ export function WelcomeScreen() {
         </div>
       </section>
 
+      <div className="welcome-side">
       {storage === "memory" ? (
         <p className="banner">Your walk won’t be saved on this device.</p>
       ) : null}
 
-      <div style={{ padding: "18px 24px 0", display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="welcome-actions">
         <button
           className="btn btn-primary btn-block"
           type="button"
@@ -127,8 +117,9 @@ export function WelcomeScreen() {
           </button>
         ) : null}
       </div>
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 28 }}>
+      <div className="welcome-credit">
         <QlooCredit />
+      </div>
       </div>
     </main>
   );

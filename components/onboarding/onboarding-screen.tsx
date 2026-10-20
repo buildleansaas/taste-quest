@@ -154,9 +154,9 @@ export function OnboardingScreen() {
     ).length;
 
   return (
-    <main className="screen" style={{ minHeight: "100dvh" }}>
+    <main className="screen flow">
       <DeviceChrome />
-      <header style={{ display: "flex", alignItems: "center", gap: 12, padding: "56px 20px 0" }}>
+      <header className="page-header">
         <button className="icon-btn ghost" type="button" aria-label="Back" onClick={() => router.push("/")}>
           <Chevron />
         </button>
@@ -165,7 +165,8 @@ export function OnboardingScreen() {
         </div>
         <span style={{ fontSize: 13, color: "var(--color-slate-dim)", fontWeight: 500 }}>1 of 2</span>
       </header>
-      <div style={{ padding: "18px 24px 140px" }}>
+      <div className="flow-body onboard-body">
+        <div className="flow-lead">
         <h1 className="display" style={{ fontSize: 30, lineHeight: "36px", margin: 0 }}>
           What do you love?
         </h1>
@@ -265,7 +266,8 @@ export function OnboardingScreen() {
           </p>
         ) : null}
         {seeded ? null : null}
-
+        </div>
+        <div>
         {SECTIONS.map((section) => (
           <section key={section.key} style={{ marginTop: 22 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
@@ -298,8 +300,9 @@ export function OnboardingScreen() {
             </div>
           </section>
         ))}
+        </div>
       </div>
-      <div style={{ position: "sticky", bottom: 0, padding: "28px 24px 28px", background: "linear-gradient(#f8f6f400, #f8f6f4 28%)" }}>
+      <div className="flow-dock roomy">
         <button className="btn btn-primary btn-block" type="button" disabled={!ready} onClick={continueNext}>
           Continue · {picked + (entities.length >= 2 ? 0 : seeds.length)} picked
         </button>

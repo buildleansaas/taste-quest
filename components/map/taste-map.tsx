@@ -115,9 +115,14 @@ export function TasteMap({
       apply();
     });
     observer.observe(node.current);
+    const onOrient = () => {
+      window.setTimeout(() => apply(), 80);
+    };
+    window.addEventListener("orientationchange", onOrient);
     mapRef.current = map;
     return () => {
       observer.disconnect();
+      window.removeEventListener("orientationchange", onOrient);
       map.off("style.load", apply);
       map.remove();
       mapRef.current = null;

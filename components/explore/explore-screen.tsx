@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
+import { useMinWidth } from "@/components/chrome/use-wide";
 import { TasteMap, type MapPin, type MapRoute } from "@/components/map/taste-map";
 import { readUiStream } from "@/lib/client/stream";
 import {
@@ -43,6 +44,7 @@ export function ExploreScreen() {
   const [fix, setFix] = useState<{ lat: number; lon: number } | null>(null);
   const [liveStops, setLiveStops] = useState<Stop[]>([]);
   const [liveRoute, setLiveRoute] = useState<WalkRoute | null>(null);
+  const wide = useMinWidth(768);
 
   useEffect(() => {
     void hydrate();
@@ -177,7 +179,11 @@ export function ExploreScreen() {
   const listed = stops.some((stop) => stop.state === "visited" || stop.state === "skipped");
   const design = walk?.poolKey === DESIGN_POOL;
   const frame = design ? (listed ? REROUTE_FRAME : EXPLORE_FRAME) : undefined;
-  const pad = listed ? REROUTE_PAD : EXPLORE_PAD;
+  const pad = wide
+    ? { top: 88, bottom: 40, left: 456, right: 48 }
+    : listed
+      ? REROUTE_PAD
+      : EXPLORE_PAD;
   const zoomOut = listed ? REROUTE_ZOOM_OUT : EXPLORE_ZOOM_OUT;
   const cursor = walk?.cursor;
   const fixNearDesign =
@@ -215,9 +221,10 @@ export function ExploreScreen() {
   const center: [number, number] = user ?? [-97.743, 30.267];
   const minutesLeft = walk?.remainingMin ?? walk?.budgetMin ?? budget?.minutes ?? 0;
   const leftLabel = formatLeft(minutesLeft ?? 0);
+  const sheetH = listed ? 300 : planning && !next ? 220 : 316;
 
   return (
-    <main className="screen" style={{ height: "100dvh", overflow: "hidden" }}>
+    <main className="screen map-screen" style={{ ["--sheet-h" as string]: `${sheetH}px` }}>
       <div className="map-stage">
         {hydrated ? (
           <TasteMap
@@ -234,14 +241,14 @@ export function ExploreScreen() {
         ) : null}
       </div>
       <DeviceChrome />
-      <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: listed ? 200 : 130, background: listed ? "linear-gradient(#f8f6f4e6, #f8f6f400)" : "linear-gradient(#f8f6f4f2, #f8f6f400)", pointerEvents: "none", zIndex: 4 }} />
-      <div style={{ position: "absolute", top: 58, left: 16, right: 16, display: toast ? "none" : "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
+      <div className={listed ? "map-fade tall" : "map-fade"} />
+      <div className="hud" style={{ display: toast ? "none" : undefined }}>
         <button className="icon-btn" type="button" aria-label="Menu" onClick={() => setMenu(true)}>
           <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M3 6h14M3 10h14M3 14h14" stroke="#28323c" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
         </button>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="hud-chips">
           <span className="geo-chip">
             <span className="dot" style={{ background: "var(--color-accent)" }} />
             {leftLabel} left
@@ -258,13 +265,9 @@ export function ExploreScreen() {
         </span>
       </div>
 
-      {!online ? <p className="banner" style={{ position: "absolute", top: 108, left: 0, right: 0, zIndex: 12 }}>You’re offline. The saved route stays. New searches are paused.</p> : null}
-      {route?.approximate ? (
-        <p style={{ position: "absolute", right: 16, bottom: 340, zIndex: 10, fontSize: 12, color: "var(--color-slate-dim)", background: "#fff", borderRadius: 999, padding: "4px 8px", boxShadow: "var(--shadow-control-sm)" }}>
-          approx.
-        </p>
-      ) : null}
-      <div style={{ position: "absolute", right: 16, bottom: listed ? 314 : 330, zIndex: 10 }}>
+      {!online ? <p className="banner map-note">You’re offline. The saved route stays. New searches are paused.</p> : null}
+      {route?.approximate ? <p className="approx-tag">approx.</p> : null}
+      <div className="locate">
         <span className="icon-btn" aria-hidden="true">
           <svg width="18" height="18" viewBox="0 0 20 20">
             <path d="M17 3L3 9l6 2 2 6z" fill="#6f6fba" />
@@ -278,7 +281,7 @@ export function ExploreScreen() {
         </div>
       ) : null}
 
-      <section className="sheet" style={{ height: listed ? 300 : planning && !next ? 220 : 316 }}>
+      <section className="sheet explore-sheet">
         <div className="grabber" />
         <div style={{ padding: "14px 20px 0" }}>
           {error ? (
@@ -327,7 +330,7 @@ export function ExploreScreen() {
       </section>
 
       {toast ? (
-        <div style={{ position: "absolute", top: 58, left: 14, right: 14, zIndex: 30, background: "var(--color-night)", color: "#fff", borderRadius: "var(--radius-panel)", padding: "14px 14px 14px 16px", boxShadow: "var(--shadow-float), 0 10px 30px #1e232833", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <div className="route-toast">
           <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8c8cc833", flex: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
             <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M4 10a6 6 0 0 1 10.2-4.3M16 10a6 6 0 0 1-10.2 4.3" fill="none" stroke="#b4aadc" strokeWidth="1.8" strokeLinecap="round" />
@@ -355,7 +358,7 @@ export function ExploreScreen() {
 
       {menu ? (
         <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#28323c33" }} onClick={() => setMenu(false)}>
-          <div className="card" style={{ margin: 16, padding: 8, borderRadius: 16 }} onClick={(event) => event.stopPropagation()}>
+          <div className="card map-menu" onClick={(event) => event.stopPropagation()}>
             <MenuRow label="Edit tastes" onClick={() => router.push("/onboarding")} />
             <MenuRow label="Time and start" onClick={() => router.push("/start")} />
             <MenuRow

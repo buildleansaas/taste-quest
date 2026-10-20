@@ -121,9 +121,9 @@ export function StartScreen() {
   if (!hydrated) return <main className="screen" />;
 
   return (
-    <main className="screen">
+    <main className="screen flow">
       <DeviceChrome />
-      <header style={{ display: "flex", alignItems: "center", gap: 12, padding: "56px 20px 0" }}>
+      <header className="page-header">
         <button className="icon-btn ghost" type="button" aria-label="Back" onClick={() => router.push("/onboarding")}>
           <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M12.5 4l-6 6 6 6" fill="none" stroke="#28323c" strokeWidth="1.8" strokeLinecap="round" />
@@ -134,14 +134,16 @@ export function StartScreen() {
         </div>
         <span style={{ fontSize: 13, color: "var(--color-slate-dim)", fontWeight: 500 }}>2 of 2</span>
       </header>
-      <div style={{ padding: "18px 24px 150px" }}>
+      <div className="flow-body start-body">
+        <div className="flow-lead">
         <h1 className="display" style={{ fontSize: 30, lineHeight: "36px", margin: 0 }}>
           How long do you have?
         </h1>
         <p style={{ marginTop: 8, color: "var(--color-slate)", fontSize: 15, lineHeight: "22px" }}>
           We’ll fit the walk to it and re-plan as you go.
         </p>
-        <div style={{ marginTop: 22, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        </div>
+        <div className="budget-grid">
           {CARDS.map((card) => {
             const on = mode === card.mode;
             return (
@@ -183,6 +185,7 @@ export function StartScreen() {
           })}
         </div>
         {tonightNote && mode === "tonight" ? <p className="banner">{tonightNote}</p> : null}
+        <div>
         <div className="eyebrow" style={{ marginTop: 28, marginBottom: 10 }}>
           Start from
         </div>
@@ -264,8 +267,9 @@ export function StartScreen() {
         {pace === "stepfree" ? (
           <p style={{ marginTop: 8, fontSize: 12, color: "var(--color-slate-dim)" }}>Step-free routes may include steps on this version.</p>
         ) : null}
+        </div>
       </div>
-      <div style={{ position: "sticky", bottom: 0, padding: "12px 24px 28px", background: "linear-gradient(#f8f6f400, #f8f6f4 20%)" }}>
+      <div className="flow-dock">
         {contextLine ? (
           <div style={{ display: "flex", justifyContent: "center", gap: 6, fontSize: 12, color: "var(--color-slate-dim)", marginBottom: 12 }}>
             {contextLine}
