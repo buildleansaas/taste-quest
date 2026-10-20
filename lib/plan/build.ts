@@ -54,7 +54,8 @@ function poolCacheKey(profile: TasteProfile, hash: string, radius: number, weekd
   const signature = sha(
     `${profile.entities.map((e) => e.id).sort().join(",")}|${profile.tags.map((t) => t.id).sort().join(",")}`,
   );
-  return `qp:${signature}:${hash}:${radius}:${weekday}`;
+  // Bump the version when normalized Candidate fields change, so cached pools are not reused.
+  return `qp:v2:${signature}:${hash}:${radius}:${weekday}`;
 }
 
 async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean): Promise<{
