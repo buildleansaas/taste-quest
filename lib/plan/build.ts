@@ -78,6 +78,7 @@ async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean)
 
   let current = radius;
   let collected: Candidate[] = [];
+  let partial = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let page: Candidate[];
     try {
@@ -93,6 +94,7 @@ async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean)
     } catch (error) {
       // A later widen page failing (timeout, busy) keeps the pages we have.
       if (attempt === 0 || !collected.length) throw error;
+      partial = true;
       break;
     }
     collected = page;
@@ -124,7 +126,9 @@ async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean)
     current = Math.min(2500, Math.round(current * 1.6));
   }
   const finalKey = poolCacheKey(profile, hash, current, weekday);
-  if (collected.length && qlooConfigured()) {
+  // A partial pool (a widen page failed) is used for this plan but never
+  // cached, since its key would name a radius that was not fetched.
+  if (collected.length && qlooConfigured() && !partial) {
     await cacheSet(finalKey, collected.slice(0, 100), TTL.pool, ["qloo", "pool"]);
   }
   return { candidates: collected.slice(0, 100), poolKey: finalKey, fromCache: false };
