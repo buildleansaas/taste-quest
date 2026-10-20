@@ -531,7 +531,23 @@ describe("Austin demo", () => {
       expect(walk.versions[0]!.route.approximate).toBe(false);
       expect(walk.versions[0]!.stops.map((s) => s.name)).toEqual(["Antone’s Nightclub", "Midnight Cowboy", "Swan Dive", "Mohawk"]);
     } finally {
-      process.env.QLOO_API_KEY = prev;
+      if (prev === undefined) delete process.env.QLOO_API_KEY;
+      else process.env.QLOO_API_KEY = prev;
     }
+  });
+
+  it("plans someone's own tastes from the Austin start, not the script", async () => {
+    const own = { entities: [], tags: [{ id: "urn:tag:cuisine:qloo:coffee", name: "Coffee", cat: "cuisine" as const }], updatedAt: "" };
+    const walk = await buildWalk({
+      profile: own,
+      start: { ...DEMO_START, source: "demo" },
+      budgetMin: 120,
+      pace: "easy",
+      mode: "2h",
+      shape: "loop",
+      demo: true,
+      tz: "America/Chicago",
+    });
+    expect(walk.poolKey).not.toBe("design:austin");
   });
 });

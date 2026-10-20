@@ -19,6 +19,7 @@ import { sha } from "@/lib/hash";
 import { getQuota, placesNear, qlooConfigured, quotaMode, resolveSampleIds } from "@/lib/qloo/client";
 import { formatMinutes } from "@/lib/format";
 import { DESIGN_POOL, designReroute, designWalk } from "@/lib/plan/design-walk";
+import { demoProfile } from "@/lib/taste/curated";
 import { routeFoot, type Routed } from "@/lib/routing/osrm";
 import { demoClock, readContext } from "@/lib/weather/open-meteo";
 import type {
@@ -222,11 +223,17 @@ function toStops(
   });
 }
 
+function isDemoProfile(profile: TasteProfile): boolean {
+  const key = (p: TasteProfile) => [...p.entities.map((e) => e.id), ...p.tags.map((t) => t.id)].sort().join("|");
+  return key(profile) === key(demoProfile());
+}
+
 export async function buildWalk(input: PlanInput): Promise<Walk> {
-  // The Austin demo is always the scripted walk with its recorded street
-  // route, so judges see the same polished loop whatever keys are set. Live
-  // Qloo plans come from "Start exploring".
-  if (input.demo) {
+  // "Try the Austin demo" (the preset demo tastes from the Austin start) is
+  // always the scripted walk with its recorded street route, so judges see the
+  // same polished loop whatever keys are set. Someone who picked their own
+  // tastes and the Austin start still gets a live plan.
+  if (input.demo && isDemoProfile(input.profile)) {
     input.onStep?.("Setting the demo clock to Saturday evening…");
     input.onStep?.("Searching Qloo near you…");
     input.onStep?.("Fitting stops to your time…");

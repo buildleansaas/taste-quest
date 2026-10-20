@@ -255,7 +255,7 @@ export function ExploreScreen() {
   const center: [number, number] = user ?? [-97.743, 30.267];
   // Time left is the budget minus time since the walk was planned. remainingMin
   // is the planned length, so it only stands in for the scripted design walk
-  // (the keyless Austin demo). A live demo walk counts down like any other.
+  // (the Austin demo). Every other walk counts down.
   const elapsedMin = walk?.startedAt ? Math.max(0, (now - Date.parse(walk.startedAt)) / 60_000) : 0;
   const minutesLeft = walk?.headingBack
     ? (walk.returnMin ?? returnMin)
