@@ -12,6 +12,6 @@ export async function GET(): Promise<Response> {
     mode: "2h",
     // TODO(#14): serve a warmed Runtime Cache payload (demo:v1) and a simulated GPS track.
     simulated: false,
-    note: "Preset Austin profile. The walk is planned live (or from sample data when QLOO_API_KEY is unset).",
+    note: "Preset Austin profile. It plays the scripted Austin walk with its recorded street route.",
   });
 }

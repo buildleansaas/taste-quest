@@ -10,11 +10,6 @@ export type MapPin = {
   cls?: string;
   label?: string;
   color?: string;
-  /** Accessible name for a tappable pin. */
-  title?: string;
-  onClick?: () => void;
-  /** Lets the user drag the pin; onDragEnd gets the new lat/lon. */
-  onDragEnd?: (lat: number, lon: number) => void;
 };
 
 export type MapRoute = {
@@ -91,23 +86,10 @@ export function TasteMap({
   const markers = useRef<maplibregl.Marker[]>([]);
   const pick = useRef(onPick);
   pick.current = onPick;
-  // Markers are rebuilt on every paint, which would drop a pin mid-drag.
-  // While a drag is on, paints are skipped and run once when it ends.
-  const dragging = useRef(false);
   const fitted = useRef<string | undefined>(undefined);
   const userMoved = useRef(false);
   const fitKeyRef = useRef(fitKey);
   fitKeyRef.current = fitKey;
-  const repaint = useRef<() => void>(() => undefined);
-  const dragHooks = useRef({
-    start: () => {
-      dragging.current = true;
-    },
-    end: () => {
-      dragging.current = false;
-      repaint.current();
-    },
-  }).current;
   const shouldFit = () => {
     const key = fitKeyRef.current;
     if (key === undefined) return true;
@@ -142,7 +124,7 @@ export function TasteMap({
       if (!map.getStyle()?.layers?.length) return;
       try {
         recolor(map);
-        paint(map, scene.current, markers, shouldFit(), dragHooks);
+        paint(map, scene.current, markers, shouldFit());
       } catch (err) {
         console.warn("map paint", err);
       }
@@ -184,28 +166,17 @@ export function TasteMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  repaint.current = () => {
-    const map = mapRef.current;
-    if (!map?.getStyle()?.layers?.length) return;
-    try {
-      paint(map, scene.current, markers, false, dragHooks);
-    } catch (err) {
-      console.warn("map paint", err);
-    }
-  };
-
   useEffect(() => {
     const map = mapRef.current;
     if (!map?.getStyle()?.layers?.length) return;
-    if (dragging.current) return;
     try {
       if (!map.getLayer("b3d")) recolor(map);
-      paint(map, scene.current, markers, shouldFit(), dragHooks);
+      paint(map, scene.current, markers, shouldFit());
     } catch (err) {
       console.warn("map paint", err);
     }
     // shouldFit reads fitKey through a ref; fitKey is listed so a Recenter repaints.
-  }, [routes, pins, user, center, zoom, pitch, bearing, frame, pad, zoomOut, fitPitch, maxZoom, fitKey, dragHooks]);
+  }, [routes, pins, user, center, zoom, pitch, bearing, frame, pad, zoomOut, fitPitch, maxZoom, fitKey]);
 
   return <div ref={node} className={className ?? "map-fill"} />;
 }
@@ -291,7 +262,6 @@ function paint(
   },
   markers: MutableRefObject<maplibregl.Marker[]>,
   moveCamera = true,
-  drag?: { start: () => void; end: () => void },
 ) {
   markers.current.forEach((marker) => marker.remove());
   markers.current = [];
@@ -350,59 +320,23 @@ function paint(
     });
   });
 
-  // The user dot goes in first so pins stack above it: at the start of a loop
-  // it sits on the start pin, which must stay grabbable.
-  if (props.user) {
-    const el = document.createElement("div");
-    el.className = "user";
-    el.innerHTML = '<div class="halo"></div><div class="cone"></div><div class="pulse"></div><div class="core"></div>';
-    markers.current.push(new maplibregl.Marker({ element: el, pitchAlignment: "map" }).setLngLat(props.user).addTo(map));
-  }
   for (const pin of props.pins) {
     const el = document.createElement("div");
     el.className = `pin ${pin.cls ?? ""}`;
     el.style.setProperty("--c", pin.color || "#8c8cc8");
     const mark = pin.cls?.split(" ").includes("home")
       ? `<svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 9.2 10 3.8l6.5 5.4V16.5H12v-4.2H8v4.2H3.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`
-      : pin.cls?.split(" ").includes("alt")
-        ? `<svg width="12" height="12" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>`
-        : `${pin.n}`;
+      : `${pin.n}`;
     el.innerHTML = `<div class="bubble"><i></i>${mark}</div><div class="stem"></div>${pin.label ? `<div class="label">${pin.label}</div>` : ""}`;
-    if (pin.onClick) {
-      const onClick = pin.onClick;
-      el.setAttribute("role", "button");
-      el.setAttribute("tabindex", "0");
-      if (pin.title) el.setAttribute("aria-label", pin.title);
-      el.addEventListener("click", (event) => {
-        event.stopPropagation();
-        onClick();
-      });
-      el.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      });
-    }
-    const marker = new maplibregl.Marker({
-      element: el,
-      anchor: "bottom",
-      offset: [0, pin.label ? 22 : 0],
-      draggable: Boolean(pin.onDragEnd),
-    }).setLngLat(pin.ll);
-    if (pin.onDragEnd) {
-      const onDragEnd = pin.onDragEnd;
-      if (pin.title) el.setAttribute("aria-label", pin.title);
-      marker.on("dragstart", () => drag?.start());
-      marker.on("dragend", () => {
-        const at = marker.getLngLat();
-        drag?.end();
-        onDragEnd(at.lat, at.lng);
-      });
-    }
-    markers.current.push(marker.addTo(map));
-    // addTo() labels every marker "Map marker"; restore ours after it.
-    if (pin.title) el.setAttribute("aria-label", pin.title);
+    markers.current.push(
+      new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, pin.label ? 22 : 0] }).setLngLat(pin.ll).addTo(map),
+    );
+  }
+  if (props.user) {
+    const el = document.createElement("div");
+    el.className = "user";
+    el.innerHTML = '<div class="halo"></div><div class="cone"></div><div class="pulse"></div><div class="core"></div>';
+    markers.current.push(new maplibregl.Marker({ element: el, pitchAlignment: "map" }).setLngLat(props.user).addTo(map));
   }
 
   if (!moveCamera) return;
