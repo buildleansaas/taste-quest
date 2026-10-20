@@ -297,7 +297,7 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
 }
 
 function osrmLine(): string {
-  return process.env.OSRM_BASE_URL
+  return process.env.OSRM_BASE_URL?.trim()
     ? "Drawing the walking path…"
     : "Drawing an approximate path (no router configured)…";
 }
