@@ -337,7 +337,7 @@ describe("loop and order", () => {
       lat: 30.271,
       lon: -97.7396,
       category: "cafe",
-      tags: [{ id: "dessert", name: "Dessert" }],
+      tags: [{ id: "urn:tag:category:place:dessert_shop", name: "Dessert shop", type: "urn:tag:category:place" }],
       baseScore: 1.4,
       dwellMin: 20,
     });
@@ -461,5 +461,17 @@ describe("review fixes", () => {
     expect(formatMinutes(59.7)).toBe("1h 00m");
     expect(formatMinutes(91)).toBe("1h 31m");
     expect(formatMinutes(27)).toBe("27m");
+  });
+});
+
+describe("live tag noise", () => {
+  const ctx = (kind: string, name: string) => ({ id: `urn:tag:${kind}:qloo:${name.toLowerCase()}`, name, type: `urn:tag:${kind}:qloo` });
+  it("ignores context tags when deciding the part of day", () => {
+    const cathedral = scored({ entityId: "c", lat: 30.27, lon: -97.742, category: "sight", tags: [ctx("nearby_attraction", "Dessert"), ctx("planning", "Dinner reservations")] });
+    expect(orderNoteFor(cathedral.category, cathedral.tags, 10 * 60 + 30)).not.toMatch(/nightcap|dinner/i);
+  });
+  it("skips places nobody walks to", () => {
+    const office: Candidate = { ...SAMPLE_PLACES[0], entityId: "office", name: "Capital Factory", categoryLabel: "Coworking space", tags: [] };
+    expect(prepareCandidates([office], { departAt: evening, weekday: saturday, pace: "easy", dropIds: [], userTags: [], rainy: false, evening: true, windowMin: 600 })).toHaveLength(0);
   });
 });

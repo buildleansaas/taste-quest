@@ -102,7 +102,7 @@ describe("categoryFromTags", () => {
   const tag = (kind: string, name: string) => ({ id: `urn:tag:${kind}:qloo:${name.toLowerCase().replace(/ /g, "_")}`, name, type: `urn:tag:${kind}:qloo` });
 
   it("uses Qloo's category tag before loose tag text", () => {
-    expect(categoryFromTags([tag("amenity", "Parking lot"), cat("Cathedral")], "Saint Mary Catholic Cathedral")).toEqual({ category: "default", label: "Cathedral" });
+    expect(categoryFromTags([tag("amenity", "Parking lot"), cat("Cathedral")], "Saint Mary Catholic Cathedral")).toEqual({ category: "sight", label: "Cathedral" });
     expect(categoryFromTags([cat("Bar"), tag("setting", "Garden")], "Bacchanal").category).toBe("bar");
     expect(categoryFromTags([cat("Art museum")], "Puppet Museum")).toEqual({ category: "museum", label: "Art museum" });
   });

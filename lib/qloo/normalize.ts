@@ -21,6 +21,8 @@ const CATEGORY_RULES: { category: string; label: string; test: RegExp }[] = [
   { category: "bar", label: "Bar", test: /\b(bar|pub|lounge|brewery|taproom|wine bar|cocktail|speakeasy|tavern)\b/ },
   { category: "restaurant", label: "Restaurant", test: /\b(restaurant|kitchen|diner|eatery|bistro|taqueria|tacos?|pizzeria|steakhouse|bbq|barbecue)\b/ },
   { category: "park", label: "Park", test: /\b(park|garden|gardens|trail|viewpoint|miradouro|plaza|square|lake)\b/ },
+  { category: "shop", label: "Shop", test: /\b(store|shop|boutique|market|bookstore|book store|record store)\b/ },
+  { category: "sight", label: "Sight", test: /\b(tourist attraction|landmark|monument|statue|cathedral|church|igreja|chapel|historical|memorial|library|cemetery|art center)\b/ },
 ];
 
 function classify(text: string): { category: string; label: string } | undefined {
