@@ -511,3 +511,27 @@ describe("review round 1 (PR #23)", () => {
     expect(prepareCandidates([brewery], { ...base, rainy: false })).toHaveLength(1);
   });
 });
+
+describe("Austin demo", () => {
+  it("is the scripted walk even when Qloo is configured", async () => {
+    const prev = process.env.QLOO_API_KEY;
+    process.env.QLOO_API_KEY = "test-key-not-used";
+    try {
+      const walk = await buildWalk({
+        profile: demoProfile(),
+        start: { ...DEMO_START, source: "demo" },
+        budgetMin: 120,
+        pace: "easy",
+        mode: "2h",
+        shape: "loop",
+        demo: true,
+        tz: "America/Chicago",
+      });
+      expect(walk.mock).toBe(true);
+      expect(walk.versions[0]!.route.approximate).toBe(false);
+      expect(walk.versions[0]!.stops.map((s) => s.name)).toEqual(["Antone’s Nightclub", "Midnight Cowboy", "Swan Dive", "Mohawk"]);
+    } finally {
+      process.env.QLOO_API_KEY = prev;
+    }
+  });
+});
