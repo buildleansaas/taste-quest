@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@vercel/functions": "3.10.1",
-    "ai": "7.0.145",
+    "ai": "7.0.143",
     "idb-keyval": "6.2.2",
     "maplibre-gl": "4.7.1",
     "next": "15.5.28",
@@ -32,11 +32,5 @@
     "tailwindcss": "4.1.16",
     "typescript": "5.9.3",
     "vitest": "4.0.5"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "unrs-resolver"
-    ]
   }
 }
