@@ -370,7 +370,10 @@ export async function rerouteWalk(input: {
     };
     if (reloadPool) input.walk = { ...input.walk, pool: [], poolKey: "" };
   }
-  if (input.walk.poolKey === DESIGN_POOL && input.walk.mock && input.reason === "skip") {
+  // The scripted re-route only fits the untouched design walk. After a hand
+  // edit (version > 1) a Skip runs the real engine so the edits are kept.
+  // Undo back to version 1 brings the scripted beat back.
+  if (input.walk.poolKey === DESIGN_POOL && input.walk.mock && input.reason === "skip" && input.walk.currentVersion === 1) {
     const scripted = designReroute(input.walk);
     const previous = input.walk.versions[input.walk.versions.length - 1]?.stops ?? [];
     const nextStops = scripted.walk.versions[scripted.walk.versions.length - 1]?.stops ?? [];
@@ -487,7 +490,9 @@ export async function rerouteWalk(input: {
   const walk: Walk = {
     ...input.walk,
     currentVersion: versionNumber,
-    versions: [...input.walk.versions, version],
+    // Keep the request small and under the schema's 50-version cap, however
+    // many edits a session makes.
+    versions: [...input.walk.versions, version].slice(-20),
     pool,
     shape,
     returnMin,
@@ -534,13 +539,22 @@ function editedSequence(
   pace: Pace,
 ): ChosenStop[] {
   const byId = new Map(prepared.map((cand) => [cand.entityId, cand]));
-  const upcoming = previous.filter((stop) => stop.state === "todo" || stop.state === "next").map((stop) => stop.entityId);
+  const upcomingStops = previous.filter((stop) => stop.state === "todo" || stop.state === "next");
+  const upcoming = upcomingStops.map((stop) => stop.entityId);
   let ids = upcoming.filter((id) => !dropIds.includes(id));
   if (edit.kind === "order") {
-    const wanted = edit.ids.filter((id) => ids.includes(id));
+    const wanted = [...new Set(edit.ids)].filter((id) => ids.includes(id));
     ids = [...wanted, ...ids.filter((id) => !wanted.includes(id))];
   }
-  let seq = ids.map((id) => byId.get(id)).filter((cand): cand is Scored => Boolean(cand));
+  // A stop the user didn't touch stays even if the pool no longer scores it
+  // (closed by the live clock, deduped, or trimmed from the stored pool).
+  const keep = (id: string): Scored | undefined => {
+    const scored = byId.get(id);
+    if (scored) return scored;
+    const stop = upcomingStops.find((item) => item.entityId === id);
+    return stop ? stopAsScored(stop) : undefined;
+  };
+  let seq = ids.map(keep).filter((cand): cand is Scored => Boolean(cand));
   if ((edit.kind === "add" || edit.kind === "swap") && !seq.some((cand) => cand.entityId === edit.id)) {
     const cand = byId.get(edit.id);
     if (!cand) throw new EditError("That place is closed then or can't be added to this walk.");
@@ -551,6 +565,28 @@ function editedSequence(
     seq = [...seq.slice(0, at), cand, ...seq.slice(at)];
   }
   return seq.map((cand) => ({ ...cand, ratio: 0 }));
+}
+
+function stopAsScored(stop: Stop): Scored {
+  return {
+    entityId: stop.entityId,
+    name: stop.name,
+    lat: stop.lat,
+    lon: stop.lon,
+    affinity: stop.affinity,
+    address: stop.address,
+    category: stop.category,
+    categoryLabel: stop.categoryLabel,
+    tags: [],
+    hours: stop.hours,
+    neighborhood: stop.neighborhood,
+    imageUrl: stop.imageUrl,
+    entityShares: stop.evidence.entityShares,
+    sample: stop.sample,
+    baseScore: 0,
+    tagOverlap: stop.evidence.tagOverlap,
+    dwellMin: stop.dwellMin,
+  };
 }
 
 function editToast(

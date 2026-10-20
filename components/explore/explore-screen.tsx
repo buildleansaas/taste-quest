@@ -267,7 +267,7 @@ export function ExploreScreen() {
   async function applyEdit(edit: WalkEdit) {
     if (!walk || !profile || !online || editing) return;
     const previous = walk;
-    const here = edit.kind === "start" ? { lat: edit.lat, lon: edit.lon } : (fix ?? { lat: walk.start.lat, lon: walk.start.lon });
+    const here = edit.kind === "start" ? { lat: edit.lat, lon: edit.lon } : routeFrom(walk, fix);
     setEditing(true);
     try {
       const response = await fetch("/api/reroute", {
@@ -295,6 +295,7 @@ export function ExploreScreen() {
       setUndoWalk(null);
       setToastTitle("Can't change that");
       setToast("Couldn't update. Your route is unchanged.");
+      flashToast(6000);
     } finally {
       setEditing(false);
     }
@@ -303,7 +304,7 @@ export function ExploreScreen() {
   async function skip() {
     if (!walk || !profile || !next || !online) return;
     const previous = walk;
-    const here = fix ?? { lat: walk.start.lat, lon: walk.start.lon };
+    const here = routeFrom(walk, fix);
     const response = await fetch("/api/reroute", {
       method: "POST",
       headers: { "content-type": "application/json", "x-device-id": deviceId },
@@ -643,6 +644,17 @@ function MenuRow({ label, onClick }: { label: string; onClick: () => void }) {
       {label}
     </button>
   );
+}
+
+/**
+ * Where a re-route starts. The GPS fix, unless it is far from the walk (a
+ * viewer trying the Austin demo from another city), then the walk's cursor or
+ * start, so the route and the toast's minutes stay about this walk.
+ */
+function routeFrom(walk: Walk, fix: { lat: number; lon: number } | null | undefined): { lat: number; lon: number } {
+  const anchor = walk.cursor ?? { lat: walk.start.lat, lon: walk.start.lon };
+  if (!fix) return anchor;
+  return haversineM(fix, walk.start) > 3000 ? anchor : { lat: fix.lat, lon: fix.lon };
 }
 
 function pinColor(stop: Stop): string {

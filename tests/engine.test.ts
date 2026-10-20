@@ -581,3 +581,37 @@ describe("hand edits (#21)", () => {
     expect(result.toast).toMatch(/^Moved your start/);
   });
 });
+
+describe("hand edits, review round 1 (PR #24)", () => {
+  const upcoming = (walk: Walk) =>
+    walk.versions[walk.versions.length - 1]!.stops.filter((s) => s.state === "todo" || s.state === "next").map((s) => s.entityId);
+  const reroute = (walk: Walk, reason: "edit" | "skip", e?: import("@/lib/types").WalkEdit) =>
+    rerouteWalk({ profile: demoProfile(), walk, fix: { lat: walk.start.lat, lon: walk.start.lon }, reason, edit: e, tz: "America/Chicago" });
+  const demo = () =>
+    buildWalk({ profile: demoProfile(), start: { ...DEMO_START, source: "demo" }, budgetMin: 120, pace: "easy", mode: "tonight", shape: "loop", demo: true, tz: "America/Chicago" });
+
+  it("keeps a removal when Skip follows on the scripted demo", async () => {
+    const walk = await demo();
+    const gone = upcoming(walk).at(-1)!;
+    const edited = (await reroute(walk, "edit", { kind: "remove", id: gone })).walk;
+    const skipped = (await reroute(edited, "skip")).walk;
+    expect(upcoming(skipped)).not.toContain(gone);
+  });
+
+  it("keeps an untouched stop the pool no longer scores", async () => {
+    const walk = await demo();
+    const [first, second] = upcoming(walk);
+    const pool = (walk.pool ?? []).map((cand) => (cand.entityId === second ? { ...cand, isClosed: true } : cand));
+    const after = upcoming((await reroute({ ...walk, pool }, "edit", { kind: "remove", id: first! })).walk);
+    expect(after).toContain(second);
+  });
+
+  it("ignores duplicate ids in a reorder and trims old versions", async () => {
+    let walk = await demo();
+    const ids = upcoming(walk);
+    const once = upcoming((await reroute(walk, "edit", { kind: "order", ids: [ids[1]!, ids[1]!, ...ids] })).walk);
+    expect(new Set(once).size).toBe(once.length);
+    for (let i = 0; i < 25; i += 1) walk = (await reroute(walk, "edit", { kind: "order", ids: upcoming(walk).reverse() })).walk;
+    expect(walk.versions.length).toBeLessThanOrEqual(20);
+  });
+});
