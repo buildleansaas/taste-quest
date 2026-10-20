@@ -13,30 +13,7 @@ export type RerouteReason =
   | "veto"
   | "late"
   | "closed"
-  | "weather"
-  | "edit";
-
-/** A change the user made by hand. Only what they touched changes. */
-export type WalkEdit =
-  | { kind: "add"; id: string }
-  | { kind: "swap"; id: string; replace: string }
-  | { kind: "remove"; id: string }
-  | { kind: "order"; ids: string[] }
-  | { kind: "start"; lat: number; lon: number };
-
-/** A ranked place near the walk that is not on it, shown as a ghost pin. */
-export type Alternative = {
-  entityId: string;
-  name: string;
-  lat: number;
-  lon: number;
-  category: string;
-  categoryLabel: string;
-  affinity: number;
-  shortDescription?: string;
-  /** Extra minutes (walking plus time there) to add it at its cheapest spot. */
-  addMin: number;
-};
+  | "weather";
 
 export type TasteEntity = {
   id: string;
@@ -194,8 +171,6 @@ export type Walk = {
   returnMin?: number;
   /** Remaining time is about the walk home, so no new stops are offered. */
   headingBack?: boolean;
-  /** Nearby ranked places not on the walk, for Add and Swap. */
-  alternatives?: Alternative[];
 };
 
 export type PlanEvent =

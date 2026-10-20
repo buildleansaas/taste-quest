@@ -1,5 +1,4 @@
 import type {
-  Alternative,
   BudgetMode,
   Candidate,
   LatLon,
@@ -393,51 +392,6 @@ export function plannedMinutes(
   }
   if (terminus && seq.length) minutes += walkMinutes(prev, terminus, pace);
   return minutes;
-}
-
-/** Where adding `cand` costs the fewest extra minutes, and how many. */
-export function cheapestInsertion(
-  seq: Scored[],
-  cand: Scored,
-  start: LatLon,
-  terminus: LatLon | null,
-  pace: Pace,
-): { index: number; addMin: number } {
-  const base = plannedMinutes(start, seq, pace, terminus);
-  let best = { index: seq.length, addMin: Number.POSITIVE_INFINITY };
-  for (let index = 0; index <= seq.length; index += 1) {
-    const next = [...seq.slice(0, index), cand, ...seq.slice(index)];
-    const addMin = plannedMinutes(start, next, pace, terminus) - base;
-    if (addMin < best.addMin) best = { index, addMin };
-  }
-  return best;
-}
-
-/** The best-scoring places not on the walk, with what each would add. */
-export function alternativesFor(
-  prepared: Scored[],
-  seq: Scored[],
-  start: LatLon,
-  terminus: LatLon | null,
-  pace: Pace,
-  limit = 12,
-): Alternative[] {
-  const taken = new Set(seq.map((stop) => stop.entityId));
-  return prepared
-    .filter((cand) => !taken.has(cand.entityId))
-    .sort((a, b) => b.baseScore - a.baseScore)
-    .slice(0, limit)
-    .map((cand) => ({
-      entityId: cand.entityId,
-      name: cand.name,
-      lat: cand.lat,
-      lon: cand.lon,
-      category: cand.category,
-      categoryLabel: cand.categoryLabel,
-      affinity: cand.affinity,
-      shortDescription: cand.shortDescription,
-      addMin: Math.round(cheapestInsertion(seq, cand, start, terminus, pace).addMin),
-    }));
 }
 
 function routeMinutes(start: LatLon, seq: Scored[], pace: Pace, terminus: LatLon | null): number {

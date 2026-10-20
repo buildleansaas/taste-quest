@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { useMinWidth } from "@/components/chrome/use-wide";
@@ -18,7 +18,7 @@ import {
 } from "@/lib/map/austin-geometry";
 import { DESIGN_POOL } from "@/lib/plan/design-walk";
 import { useQuest } from "@/store/use-quest";
-import type { Alternative, Stop, Walk, WalkEdit, WalkRoute } from "@/lib/types";
+import type { Stop, Walk, WalkRoute } from "@/lib/types";
 
 export function ExploreScreen() {
   const router = useRouter();
@@ -32,7 +32,6 @@ export function ExploreScreen() {
   const needsPlan = useQuest((s) => s.needsPlan);
   const setWalk = useQuest((s) => s.setWalk);
   const setNeedsPlan = useQuest((s) => s.setNeedsPlan);
-  const setStart = useQuest((s) => s.setStart);
   const clearAll = useQuest((s) => s.clearAll);
   const [steps, setSteps] = useState<string[]>([]);
   const [planning, setPlanning] = useState(false);
@@ -42,20 +41,9 @@ export function ExploreScreen() {
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [toastTitle, setToastTitle] = useState("Route updated");
-  // One timer for the toast, so an earlier edit's timer can't hide a newer
-  // toast (and its Undo) early.
-  const toastTimer = useRef<number | null>(null);
-  const flashToast = (ms: number) => {
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), ms);
-  };
   const [undoWalk, setUndoWalk] = useState<Walk | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [recenter, setRecenter] = useState(0);
-  const [preview, setPreview] = useState<Alternative | null>(null);
-  const [showList, setShowList] = useState(false);
-  const [editing, setEditing] = useState(false);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(tick);
@@ -177,8 +165,7 @@ export function ExploreScreen() {
       : undefined;
 
   const shape = walk?.shape ?? budget?.shape ?? "loop";
-  // walk.start moves when the user drags the start pin.
-  const origin = shape === "end-near" ? (walk?.end ?? budget?.end ?? start) : (walk?.start ?? start);
+  const origin = shape === "end-near" ? (walk?.end ?? budget?.end ?? start) : start;
   const returnMin = walk?.returnMin ?? 0;
   const showRide = Boolean(origin && returnMin > 0 && shouldOfferRide(returnMin, walk?.isDemo ? 19 : new Date().getHours()));
   const stopPins: MapPin[] = stops
@@ -232,79 +219,23 @@ export function ExploreScreen() {
         ? [cursor.lon, cursor.lat]
         : user;
   const homeAway = Boolean(origin && dot && haversineM({ lat: dot[1], lon: dot[0] }, origin) > 80);
-  const altPins: MapPin[] =
-    walk && !walk.headingBack
-      ? (walk.alternatives ?? []).map((alt) => ({
-          n: "",
-          ll: [alt.lon, alt.lat] as [number, number],
-          cls: preview?.entityId === alt.entityId ? "alt selected" : "alt",
-          color: categoryColor(alt.category),
-          title: `${alt.name}, ${alt.categoryLabel}, ${alt.affinity.toFixed(2)} taste match. Show details.`,
-          onClick: () => {
-            setShowList(false);
-            setPreview(alt);
-          },
-        }))
-      : [];
-  const editable = Boolean(walk && online && !editing && !walk.headingBack);
-  const canMoveStart = Boolean(walk && online && !editing && shape === "loop" && !walk.headingBack);
   const pins: MapPin[] =
     origin && shape !== "one-way"
       ? [
-          ...altPins,
           {
             n: "",
             ll: [origin.lon, origin.lat],
-            cls: canMoveStart ? "home draggable" : "home",
+            cls: "home",
             label: homeAway ? (shape === "end-near" ? "End" : "Start") : undefined,
-            title: canMoveStart ? "Start of your loop. Drag to move it." : undefined,
-            onDragEnd: canMoveStart ? (lat, lon) => void applyEdit({ kind: "start", lat, lon }) : undefined,
           },
           ...stopPins,
         ]
-      : [...altPins, ...stopPins];
-
-  async function applyEdit(edit: WalkEdit) {
-    if (!walk || !profile || !online || editing) return;
-    const previous = walk;
-    const here = edit.kind === "start" ? { lat: edit.lat, lon: edit.lon } : routeFrom(walk, fix);
-    setEditing(true);
-    try {
-      const response = await fetch("/api/reroute", {
-        method: "POST",
-        headers: { "content-type": "application/json", "x-device-id": deviceId },
-        body: JSON.stringify({ profile, walk, fix: here, reason: "edit", edit, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-      });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { message?: string } | null;
-        setUndoWalk(null);
-        setToastTitle("Can't change that");
-        setToast(body?.message ?? "Couldn't update. Your route is unchanged.");
-        flashToast(6000);
-        return;
-      }
-      const body = (await response.json()) as { walk: Walk; toast: string };
-      setUndoWalk(previous);
-      setToastTitle("Route updated");
-      setWalk(body.walk);
-      if (edit.kind === "start") setStart({ ...body.walk.start });
-      setPreview(null);
-      setToast(body.toast);
-      flashToast(8000);
-    } catch {
-      setUndoWalk(null);
-      setToastTitle("Can't change that");
-      setToast("Couldn't update. Your route is unchanged.");
-      flashToast(6000);
-    } finally {
-      setEditing(false);
-    }
-  }
+      : stopPins;
 
   async function skip() {
     if (!walk || !profile || !next || !online) return;
     const previous = walk;
-    const here = routeFrom(walk, fix);
+    const here = fix ?? { lat: walk.start.lat, lon: walk.start.lon };
     const response = await fetch("/api/reroute", {
       method: "POST",
       headers: { "content-type": "application/json", "x-device-id": deviceId },
@@ -316,10 +247,9 @@ export function ExploreScreen() {
     }
     const body = (await response.json()) as { walk: Walk; toast: string };
     setUndoWalk(previous);
-    setToastTitle("Route updated");
     setWalk(body.walk);
     setToast(body.toast);
-    flashToast(8000);
+    window.setTimeout(() => setToast(null), 8000);
   }
 
   const center: [number, number] = user ?? [-97.743, 30.267];
@@ -427,29 +357,16 @@ export function ExploreScreen() {
                 </button>
               </div>
             </>
-          ) : preview && walk ? (
-            <PreviewSheet
-              alt={preview}
-              next={next}
-              busy={editing}
-              online={online}
-              onAdd={() => void applyEdit({ kind: "add", id: preview.entityId })}
-              onSwap={next ? () => void applyEdit({ kind: "swap", id: preview.entityId, replace: next.entityId }) : undefined}
-              onClose={() => setPreview(null)}
-            />
           ) : walk?.headingBack && origin ? (
             <HeadBack
               minutes={returnMin}
               label={origin.label ?? walk.start.label}
               ride={showRide ? <RideBack lat={origin.lat} lon={origin.lon} label={origin.label ?? walk.start.label ?? "Start"} /> : null}
             />
-          ) : listed || (showList && !wide) ? (
+          ) : listed ? (
             <WalkList
-              onDone={showList ? () => setShowList(false) : undefined}
               stops={stops}
               totals={version?.totals}
-              onRemove={editable ? (id) => void applyEdit({ kind: "remove", id }) : undefined}
-              onReorder={editable ? (ids) => void applyEdit({ kind: "order", ids }) : undefined}
               closing={
                 returnMin > 0
                   ? `${shape === "end-near" ? "End near" : "Back to start"} · ${returnMin} min`
@@ -474,8 +391,6 @@ export function ExploreScreen() {
                 <WalkList
                   stops={stops}
                   totals={version?.totals}
-                  onRemove={editable ? (id) => void applyEdit({ kind: "remove", id }) : undefined}
-                  onReorder={editable ? (ids) => void applyEdit({ kind: "order", ids }) : undefined}
                   closing={
                     returnMin > 0
                       ? `${shape === "end-near" ? "End near" : "Back to start"} · ${returnMin} min`
@@ -496,7 +411,6 @@ export function ExploreScreen() {
               total={stops.filter((stop) => stop.state !== "skipped").length}
               onSkip={() => void skip()}
               onOpen={() => router.push(`/stop/${encodeURIComponent(next.entityId)}`)}
-              onEdit={walk ? () => setShowList(true) : undefined}
             />
           ) : (
             <>
@@ -517,7 +431,7 @@ export function ExploreScreen() {
             </svg>
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 600, fontSize: 14, lineHeight: "20px" }}>{toastTitle}</div>
+            <div style={{ fontWeight: 600, fontSize: 14, lineHeight: "20px" }}>Route updated</div>
             <div style={{ fontSize: 13, lineHeight: "19px", color: "#ffffffb3", marginTop: 2 }}>
               <ToastText text={toast} />
             </div>
@@ -525,16 +439,12 @@ export function ExploreScreen() {
           <button
             type="button"
             onClick={() => {
-              if (undoWalk) {
-                setWalk(undoWalk);
-                if (undoWalk.start) setStart({ ...undoWalk.start });
-              }
-              setUndoWalk(null);
+              if (undoWalk) setWalk(undoWalk);
               setToast(null);
             }}
             style={{ background: "none", border: 0, color: "#b4aadc", fontWeight: 600, paddingTop: 1 }}
           >
-            {undoWalk ? "Undo" : "OK"}
+            Undo
           </button>
         </div>
       ) : null}
@@ -563,14 +473,12 @@ function NextSheet({
   total,
   onSkip,
   onOpen,
-  onEdit,
 }: {
   stop: Stop;
   index: number;
   total: number;
   onSkip: () => void;
   onOpen: () => void;
-  onEdit?: () => void;
 }) {
   const shares = stop.evidence.entityShares.slice(0, 2);
   const extra = stop.evidence.entityShares.length - shares.length;
@@ -587,15 +495,9 @@ function NextSheet({
         <div className="eyebrow" style={{ color: "var(--color-accent-deep)" }}>
           Next stop · {stop.walkMin} min walk
         </div>
-        {onEdit ? (
-          <button type="button" className="link-btn" onClick={onEdit} aria-label={`Edit walk, stop ${index} of ${total}`}>
-            {index} of {total} · Edit walk
-          </button>
-        ) : (
-          <span style={{ fontSize: 12, color: "var(--color-slate-dim)" }}>
-            {index} of {total}
-          </span>
-        )}
+        <span style={{ fontSize: 12, color: "var(--color-slate-dim)" }}>
+          {index} of {total}
+        </span>
       </div>
       <button type="button" onClick={onOpen} style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 12, marginTop: 8, background: "none", border: 0, textAlign: "left", padding: 0 }}>
         <span>
@@ -646,84 +548,11 @@ function MenuRow({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
-/**
- * Where a re-route starts. The GPS fix, unless it is far from the walk (a
- * viewer trying the Austin demo from another city), then the walk's cursor or
- * start, so the route and the toast's minutes stay about this walk.
- */
-function routeFrom(walk: Walk, fix: { lat: number; lon: number } | null | undefined): { lat: number; lon: number } {
-  const anchor = walk.cursor ?? { lat: walk.start.lat, lon: walk.start.lon };
-  if (!fix) return anchor;
-  return haversineM(fix, walk.start) > 3000 ? anchor : { lat: fix.lat, lon: fix.lon };
-}
-
 function pinColor(stop: Stop): string {
-  return categoryColor(stop.category);
-}
-
-function categoryColor(category: string): string {
-  if (category === "live_music") return "#7a4fd6";
-  if (category === "bar" || category === "restaurant") return "#c08095";
-  if (category === "park") return "#8ca082";
+  if (stop.category === "live_music") return "#7a4fd6";
+  if (stop.category === "bar" || stop.category === "restaurant") return "#c08095";
+  if (stop.category === "park") return "#8ca082";
   return "#8c8cc8";
-}
-
-function PreviewSheet({
-  alt,
-  next,
-  busy,
-  online,
-  onAdd,
-  onSwap,
-  onClose,
-}: {
-  alt: Alternative;
-  next?: Stop;
-  busy: boolean;
-  online: boolean;
-  onAdd: () => void;
-  onSwap?: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div className="eyebrow" style={{ color: "var(--color-accent-deep)" }}>
-          Nearby · +{alt.addMin} min to your walk
-        </div>
-        <button type="button" className="link-btn" onClick={onClose} aria-label="Close preview">
-          Close
-        </button>
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 8 }}>
-        <span>
-          <span className="display" style={{ display: "block", fontSize: 24, lineHeight: "30px" }}>
-            {alt.name}
-          </span>
-          <span style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>{alt.categoryLabel}</span>
-        </span>
-        <span style={{ textAlign: "right" }}>
-          <span className="display" style={{ display: "block", fontSize: 24, lineHeight: "30px", fontWeight: 600, color: "var(--color-accent-deep)" }}>
-            {alt.affinity.toFixed(2)}
-          </span>
-          <span style={{ fontSize: 11, color: "var(--color-slate-dim)" }}>taste match</span>
-        </span>
-      </div>
-      {alt.shortDescription ? (
-        <p style={{ marginTop: 12, fontSize: 14, lineHeight: "21px", color: "var(--color-plum)" }}>{alt.shortDescription}</p>
-      ) : null}
-      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        {onSwap && next ? (
-          <button className="btn btn-cream" type="button" style={{ flex: 1 }} disabled={busy || !online} onClick={onSwap}>
-            Swap for {shortName(next.name)}
-          </button>
-        ) : null}
-        <button className="btn btn-primary" type="button" style={{ flex: 2 }} disabled={busy || !online} onClick={onAdd}>
-          {busy ? "Updating…" : "Add to walk"}
-        </button>
-      </div>
-    </>
-  );
 }
 
 function ToastText({ text }: { text: string }) {
@@ -743,82 +572,17 @@ function shortName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
-const ROW_H = 44;
-
 function WalkList({
   stops,
   totals,
   closing,
   ride,
-  onRemove,
-  onReorder,
-  onDone,
 }: {
   stops: Stop[];
   totals?: { walkMin: number; km: number };
   closing?: string;
   ride?: ReactNode;
-  onRemove?: (id: string) => void;
-  onReorder?: (ids: string[]) => void;
-  onDone?: () => void;
 }) {
-  const upcoming = stops.filter((stop) => stop.state === "todo" || stop.state === "next").map((stop) => stop.entityId);
-  const [drag, setDrag] = useState<{ id: string; startY: number; dy: number } | null>(null);
-  const dragStart = useRef<{ id: string; y: number } | null>(null);
-  const from = drag ? upcoming.indexOf(drag.id) : -1;
-  const to = drag ? Math.min(upcoming.length - 1, Math.max(0, from + Math.round(drag.dy / ROW_H))) : -1;
-  const shiftFor = (id: string): number => {
-    if (!drag) return 0;
-    if (id === drag.id) return drag.dy;
-    const index = upcoming.indexOf(id);
-    if (index < 0) return 0;
-    if (from < to && index > from && index <= to) return -ROW_H;
-    if (to < from && index >= to && index < from) return ROW_H;
-    return 0;
-  };
-  // Read the distance from the pointer-up event, not from state: a quick drag
-  // can lift before React re-renders with the last move.
-  const finish = (id: string, clientY: number) => {
-    const started = dragStart.current;
-    dragStart.current = null;
-    setDrag(null);
-    if (!started || started.id !== id || !onReorder) return;
-    const start = upcoming.indexOf(id);
-    const end = Math.min(upcoming.length - 1, Math.max(0, start + Math.round((clientY - started.y) / ROW_H)));
-    if (start < 0 || end === start) return;
-    const ids = [...upcoming];
-    ids.splice(start, 1);
-    ids.splice(end, 0, id);
-    onReorder(ids);
-  };
-  const handle = (id: string) =>
-    onReorder && upcoming.length > 1
-      ? {
-          onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
-            event.currentTarget.setPointerCapture(event.pointerId);
-            dragStart.current = { id, y: event.clientY };
-            setDrag({ id, startY: event.clientY, dy: 0 });
-          },
-          onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
-            setDrag((current) => (current && current.id === id ? { ...current, dy: event.clientY - current.startY } : current));
-          },
-          onPointerUp: (event: React.PointerEvent<HTMLElement>) => finish(id, event.clientY),
-          onPointerCancel: () => {
-            dragStart.current = null;
-            setDrag(null);
-          },
-          onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
-            const index = upcoming.indexOf(id);
-            const target = event.key === "ArrowUp" ? index - 1 : event.key === "ArrowDown" ? index + 1 : -1;
-            if (target < 0 || target >= upcoming.length || !onReorder) return;
-            event.preventDefault();
-            const ids = [...upcoming];
-            ids.splice(index, 1);
-            ids.splice(target, 0, id);
-            onReorder(ids);
-          },
-        }
-      : undefined;
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -827,28 +591,11 @@ function WalkList({
         </h2>
         <span style={{ fontSize: 12, color: "var(--color-slate-dim)" }}>
           {totals ? `${totals.km} km left · ${totals.walkMin} min walking` : ""}
-          {onDone ? (
-            <button type="button" className="link-btn" style={{ marginLeft: 10 }} onClick={onDone}>
-              Done
-            </button>
-          ) : null}
         </span>
       </div>
-      {onReorder && upcoming.length > 1 ? (
-        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--color-slate-dim)" }}>
-          Drag ⋮⋮ to reorder. Tap a + pin on the map to add a place.
-        </p>
-      ) : null}
       <div style={{ marginTop: 6 }}>
         {stops.map((stop) => (
-          <WalkRow
-            key={`${stop.entityId}-${stop.state}`}
-            stop={stop}
-            shift={shiftFor(stop.entityId)}
-            dragging={drag?.id === stop.entityId}
-            handle={upcoming.includes(stop.entityId) ? handle(stop.entityId) : undefined}
-            onRemove={onRemove && upcoming.includes(stop.entityId) && upcoming.length > 1 ? () => onRemove(stop.entityId) : undefined}
-          />
+          <WalkRow key={`${stop.entityId}-${stop.state}`} stop={stop} />
         ))}
         {closing ? <WalkReturn label={closing} /> : null}
         {ride}
@@ -904,19 +651,7 @@ function HeadBack({ minutes, label, ride }: { minutes: number; label?: string; r
   );
 }
 
-function WalkRow({
-  stop,
-  shift = 0,
-  dragging = false,
-  handle,
-  onRemove,
-}: {
-  stop: Stop;
-  shift?: number;
-  dragging?: boolean;
-  handle?: Record<string, unknown>;
-  onRemove?: () => void;
-}) {
+function WalkRow({ stop }: { stop: Stop }) {
   const skipped = stop.state === "skipped";
   const visited = stop.state === "visited";
   const fresh = Boolean(stop.introduced);
@@ -930,15 +665,7 @@ function WalkRow({
         : { background: "#fff", color: "var(--color-slate-dim)", boxShadow: "inset 0 0 0 1.5px var(--color-hairline)" };
   const time = visited ? "visited" : skipped ? "skipped" : fresh ? `${stop.walkMin} min` : `+${stop.walkMin} min`;
   return (
-    <div
-      className={dragging ? "walk-row dragging" : "walk-row"}
-      style={{ display: "flex", alignItems: "center", gap: 12, height: 44, transform: shift ? `translateY(${shift}px)` : undefined }}
-    >
-      {handle ? (
-        <span className="drag-handle" role="button" tabIndex={0} aria-label={`Move ${stop.name}. Use arrow keys or drag.`} {...handle}>
-          ⋮⋮
-        </span>
-      ) : null}
+    <div style={{ display: "flex", alignItems: "center", gap: 12, height: 44 }}>
       <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, fontFamily: "var(--font-display)", flex: "none", ...bubble }}>
         {mark}
       </div>
@@ -951,11 +678,6 @@ function WalkRow({
         ) : null}
       </div>
       <div style={{ fontSize: 12, color: "var(--color-slate-dim)", fontVariantNumeric: "tabular-nums" }}>{time}</div>
-      {onRemove ? (
-        <button type="button" className="row-remove" onClick={onRemove} aria-label={`Remove ${stop.name} from the walk`}>
-          ×
-        </button>
-      ) : null}
     </div>
   );
 }
