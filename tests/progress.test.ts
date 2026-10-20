@@ -89,6 +89,7 @@ describe("demo skips", () => {
     const result = await rerouteWalk({ profile: demoProfile(), walk, fix, reason: "skip", pool });
     expect(nextStop(result.walk)).toBeUndefined();
     expect(result.walk.status).toBe("done");
+    expect(result.toast).toBe("That was your last stop. Walk complete.");
   });
 
   it("plays the scripted beat once, then a second skip moves on", async () => {

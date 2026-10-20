@@ -17,7 +17,7 @@ import {
   REROUTE_ZOOM_OUT,
 } from "@/lib/map/austin-geometry";
 import { DESIGN_POOL } from "@/lib/plan/design-walk";
-import { ARRIVE_M, arriveAt, finishWalk, replanFrom } from "@/lib/walk/progress";
+import { ARRIVE_GAP_MS, ARRIVE_M, arriveAt, finishWalk, replanFrom } from "@/lib/walk/progress";
 import { useQuest } from "@/store/use-quest";
 import type { Stop, Walk, WalkRoute } from "@/lib/types";
 
@@ -53,6 +53,9 @@ export function ExploreScreen() {
   const [online, setOnline] = useState(true);
   const [fix, setFix] = useState<{ lat: number; lon: number; accuracy: number; at: number } | null>(null);
   const usedFix = useRef(0);
+  // When the current next stop became next. GPS check-in waits ARRIVE_GAP_MS
+  // after it, so venues in one block never chain-arrive on back-to-back fixes.
+  const arrivedAt = useRef(0);
   const [liveStops, setLiveStops] = useState<Stop[]>([]);
   const [liveRoute, setLiveRoute] = useState<WalkRoute | null>(null);
   const wide = useMinWidth(768);
@@ -168,8 +171,10 @@ export function ExploreScreen() {
   useEffect(() => {
     if (!walk || !fix || !next || walk.status === "done" || skipping) return;
     if (fix.at === usedFix.current || fix.accuracy > ARRIVE_M) return;
+    if (Date.now() - arrivedAt.current < ARRIVE_GAP_MS) return;
     if (haversineM(fix, next) > ARRIVE_M) return;
     usedFix.current = fix.at;
+    arrivedAt.current = Date.now();
     setWalk(arriveAt(walk, next.entityId));
   }, [fix, next, walk, setWalk, skipping]);
 
@@ -188,7 +193,7 @@ export function ExploreScreen() {
     if (!pending || !hydrated || !walk) return;
     setPending(null);
     if (!next || next.entityId !== pending.id) return;
-    if (pending.action === "arrive") setWalk(arriveAt(walk, next.entityId));
+    if (pending.action === "arrive") arrive(next.entityId);
     if (pending.action === "skip") void skip();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, hydrated, walk, next]);
@@ -269,6 +274,7 @@ export function ExploreScreen() {
   async function skip() {
     if (!walk || !profile || !next || skipping) return;
     if (!online) {
+      setUndoWalk(null);
       setToast("You’re offline. Your route is unchanged.");
       window.setTimeout(() => setToast(null), 5000);
       return;
@@ -283,22 +289,27 @@ export function ExploreScreen() {
       // schema caps the list, so a long walk never starts failing every skip.
       body: JSON.stringify({ profile, walk: { ...walk, versions: walk.versions.slice(-10) }, fix: here, reason: "skip", tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     }).catch(() => null);
-    setSkipping(false);
-    if (!response?.ok) {
+    // Stays "skipping" until the new walk is in the store, so I'm here and
+    // GPS check-in can't land on the old walk and then be overwritten.
+    const body = response?.ok ? ((await response.json().catch(() => null)) as { walk: Walk; toast: string } | null) : null;
+    if (!body?.walk) {
+      setSkipping(false);
       setUndoWalk(null);
       setToast("Couldn't update. Your route is unchanged.");
       window.setTimeout(() => setToast(null), 5000);
       return;
     }
-    const body = (await response.json()) as { walk: Walk; toast: string };
     setUndoWalk(previous);
     setWalk(body.walk);
+    setSkipping(false);
+    arrivedAt.current = Date.now();
     setToast(body.toast);
     window.setTimeout(() => setToast(null), 8000);
   }
 
   function arrive(entityId: string) {
     if (!walk || skipping) return;
+    arrivedAt.current = Date.now();
     setWalk(arriveAt(walk, entityId));
   }
 
@@ -515,16 +526,19 @@ export function ExploreScreen() {
               <ToastText text={toast} />
             </div>
           </div>
+          {undoWalk ? (
           <button
             type="button"
             onClick={() => {
-              if (undoWalk) setWalk(undoWalk);
+              setWalk(undoWalk);
+              setUndoWalk(null);
               setToast(null);
             }}
             style={{ background: "none", border: 0, color: "#b4aadc", fontWeight: 600, paddingTop: 1 }}
           >
             Undo
           </button>
+          ) : null}
         </div>
       ) : null}
 

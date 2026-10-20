@@ -3,6 +3,8 @@ import type { LatLon, Stop, Walk } from "@/lib/types";
 
 /** Within this distance of the next stop, a GPS fix counts as arriving. */
 export const ARRIVE_M = 40;
+/** GPS never checks in sooner than this after the previous stop. */
+export const ARRIVE_GAP_MS = 3 * 60_000;
 
 function latest(walk: Walk) {
   return walk.versions[walk.versions.length - 1];

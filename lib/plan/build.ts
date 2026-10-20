@@ -487,7 +487,8 @@ export async function rerouteWalk(input: {
     headingBack,
     remainingMin: headingBack ? returnMin : Math.round(Math.min(remainingRaw || input.walk.budgetMin, plannedLeft)),
   };
-  return { walk, diff, toast: toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin) };
+  const toast = doneNow ? "That was your last stop. Walk complete." : toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin);
+  return { walk, diff, toast };
 }
 
 function toastFrom(
