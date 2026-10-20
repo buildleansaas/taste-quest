@@ -359,7 +359,15 @@ export async function rerouteWalk(input: {
   pool?: Candidate[];
   tz?: string;
 }): Promise<{ walk: Walk; diff: ReturnType<typeof diffRoutes>; toast: string }> {
-  if (input.walk.poolKey === DESIGN_POOL && input.walk.mock && input.reason === "skip") {
+  // The scripted beat is the demo's first skip only (Antone's visited, Midnight
+  // Cowboy skipped). Later skips, or a skip after "I'm here" past Antone's,
+  // re-plan from the demo's sample pool like any walk, so the walk never repeats.
+  const scriptedOk =
+    input.walk.currentVersion === 1 &&
+    (input.walk.versions[input.walk.versions.length - 1]?.stops ?? []).every(
+      (stop) => stop.state !== "visited" || stop.seq === 1,
+    );
+  if (input.walk.poolKey === DESIGN_POOL && input.walk.mock && input.reason === "skip" && scriptedOk) {
     const scripted = designReroute(input.walk);
     const previous = input.walk.versions[input.walk.versions.length - 1]?.stops ?? [];
     const nextStops = scripted.walk.versions[scripted.walk.versions.length - 1]?.stops ?? [];

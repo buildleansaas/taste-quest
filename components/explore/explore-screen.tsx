@@ -17,6 +17,7 @@ import {
   REROUTE_ZOOM_OUT,
 } from "@/lib/map/austin-geometry";
 import { DESIGN_POOL } from "@/lib/plan/design-walk";
+import { ARRIVE_M, arriveAt, finishWalk, replanFrom } from "@/lib/walk/progress";
 import { useQuest } from "@/store/use-quest";
 import type { Stop, Walk, WalkRoute } from "@/lib/types";
 
@@ -44,6 +45,7 @@ export function ExploreScreen() {
   const [undoWalk, setUndoWalk] = useState<Walk | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [recenter, setRecenter] = useState(0);
+  const [skipping, setSkipping] = useState(false);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(tick);
@@ -158,6 +160,31 @@ export function ExploreScreen() {
   const route = version?.route ?? liveRoute;
   const next = stops.find((stop) => stop.state === "next") ?? stops.find((stop) => stop.state === "todo");
   const done = stops.filter((stop) => stop.state === "visited").length;
+
+  // Walking up to the next stop checks you in (a real fix within ARRIVE_M).
+  useEffect(() => {
+    if (!walk || !fix || !next || walk.status === "done") return;
+    if (haversineM(fix, next) <= ARRIVE_M) setWalk(arriveAt(walk, next.entityId));
+  }, [fix, next, walk, setWalk]);
+
+  // The stop page sends Skip and "I'm here" back here as ?do=skip|arrive&id=…
+  // so both run the same code as the map's buttons.
+  const [pending, setPending] = useState<{ action: string; id: string } | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const action = params.get("do");
+    const id = params.get("id");
+    if (!action || !id) return;
+    window.history.replaceState(null, "", "/explore");
+    setPending({ action, id });
+  }, []);
+  useEffect(() => {
+    if (!pending || !walk || !next || next.entityId !== pending.id) return;
+    setPending(null);
+    if (pending.action === "arrive") setWalk(arriveAt(walk, next.entityId));
+    if (pending.action === "skip") void skip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending, walk, next]);
   const user: [number, number] | undefined = fix
     ? [fix.lon, fix.lat]
     : start
@@ -233,16 +260,20 @@ export function ExploreScreen() {
       : stopPins;
 
   async function skip() {
-    if (!walk || !profile || !next || !online) return;
+    if (!walk || !profile || !next || !online || skipping) return;
     const previous = walk;
-    const here = fix ?? { lat: walk.start.lat, lon: walk.start.lon };
+    const here = replanFrom(walk, fix);
+    setSkipping(true);
     const response = await fetch("/api/reroute", {
       method: "POST",
       headers: { "content-type": "application/json", "x-device-id": deviceId },
       body: JSON.stringify({ profile, walk, fix: here, reason: "skip", tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
-    });
-    if (!response.ok) {
+    }).catch(() => null);
+    setSkipping(false);
+    if (!response?.ok) {
+      setUndoWalk(null);
       setToast("Couldn't update. Your route is unchanged.");
+      window.setTimeout(() => setToast(null), 5000);
       return;
     }
     const body = (await response.json()) as { walk: Walk; toast: string };
@@ -250,6 +281,17 @@ export function ExploreScreen() {
     setWalk(body.walk);
     setToast(body.toast);
     window.setTimeout(() => setToast(null), 8000);
+  }
+
+  function arrive(entityId: string) {
+    if (!walk) return;
+    setWalk(arriveAt(walk, entityId));
+  }
+
+  function endWalk() {
+    if (!walk) return;
+    setMenu(false);
+    setWalk(finishWalk(walk));
   }
 
   const center: [number, number] = user ?? [-97.743, 30.267];
@@ -265,7 +307,8 @@ export function ExploreScreen() {
         ? Math.max(0, walk.budgetMin - elapsedMin)
         : (budget?.minutes ?? 0);
   const leftLabel = formatMinutes(minutesLeft ?? 0);
-  const sheetH = walk?.headingBack ? 248 : listed ? (returnMin > 0 ? 360 : 300) : planning && !next ? 220 : 316;
+  const finished = walk?.status === "done";
+  const sheetH = finished ? 340 : walk?.headingBack ? 300 : listed && !next ? (returnMin > 0 ? 360 : 300) : planning && !next ? 220 : 316;
 
   return (
     <main className="screen map-screen" style={{ ["--sheet-h" as string]: `${sheetH}px` }}>
@@ -299,10 +342,10 @@ export function ExploreScreen() {
         <div className="hud-chips">
           <span className="geo-chip">
             <span className="dot" style={{ background: "var(--color-accent)" }} />
-            {leftLabel} left
+            {finished ? "Done" : `${leftLabel} left`}
           </span>
           <span className="geo-chip">
-            {done} of {stops.length || "–"} stops
+            {finished ? "Walk done" : `${done} of ${stops.filter((stop) => stop.state !== "skipped" && stop.state !== "vetoed").length || "–"} stops`}
           </span>
         </div>
         <button className="icon-btn" type="button" aria-label="Reset view" onClick={() => setRecenter((n) => n + 1)}>
@@ -357,13 +400,24 @@ export function ExploreScreen() {
                 </button>
               </div>
             </>
+          ) : finished && walk ? (
+            <DoneSheet
+              stops={stops}
+              km={version?.totals?.km}
+              onAgain={() => {
+                setWalk(null);
+                router.push("/start");
+              }}
+              onTastes={() => router.push("/onboarding")}
+            />
           ) : walk?.headingBack && origin ? (
             <HeadBack
               minutes={returnMin}
-              label={origin.label ?? walk.start.label}
+              label={placeLabel(origin.label ?? walk.start.label)}
               ride={showRide ? <RideBack lat={origin.lat} lon={origin.lon} label={origin.label ?? walk.start.label ?? "Start"} /> : null}
+              onFinish={endWalk}
             />
-          ) : listed ? (
+          ) : listed && !next ? (
             <WalkList
               stops={stops}
               totals={version?.totals}
@@ -385,6 +439,8 @@ export function ExploreScreen() {
                 index={stops.filter((stop) => stop.state !== "skipped").findIndex((stop) => stop.entityId === next.entityId) + 1}
                 total={stops.filter((stop) => stop.state !== "skipped").length}
                 onSkip={() => void skip()}
+                onArrive={() => arrive(next.entityId)}
+                skipping={skipping}
                 onOpen={() => router.push(`/stop/${encodeURIComponent(next.entityId)}`)}
               />
               <div className="sheet-list">
@@ -410,6 +466,8 @@ export function ExploreScreen() {
               index={stops.filter((stop) => stop.state !== "skipped").findIndex((stop) => stop.entityId === next.entityId) + 1}
               total={stops.filter((stop) => stop.state !== "skipped").length}
               onSkip={() => void skip()}
+              onArrive={() => arrive(next.entityId)}
+              skipping={skipping}
               onOpen={() => router.push(`/stop/${encodeURIComponent(next.entityId)}`)}
             />
           ) : (
@@ -454,6 +512,7 @@ export function ExploreScreen() {
           <div className="card map-menu" onClick={(event) => event.stopPropagation()}>
             <MenuRow label="Edit tastes" onClick={() => router.push("/onboarding")} />
             <MenuRow label="Time and start" onClick={() => router.push("/start")} />
+            {walk && !finished ? <MenuRow label="End walk" onClick={endWalk} /> : null}
             <MenuRow
               label="Clear my data"
               onClick={() => {
@@ -472,12 +531,16 @@ function NextSheet({
   index,
   total,
   onSkip,
+  onArrive,
+  skipping,
   onOpen,
 }: {
   stop: Stop;
   index: number;
   total: number;
   onSkip: () => void;
+  onArrive: () => void;
+  skipping: boolean;
   onOpen: () => void;
 }) {
   const shares = stop.evidence.entityShares.slice(0, 2);
@@ -504,7 +567,7 @@ function NextSheet({
           <span className="display" style={{ display: "block", fontSize: 24, lineHeight: "30px" }}>
             {stop.name}
           </span>
-          <span style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>{placeLine}</span>
+          <span className="next-place" style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>{placeLine}</span>
         </span>
         <span style={{ textAlign: "right" }}>
           <span className="display" style={{ display: "block", fontSize: 24, lineHeight: "30px", fontWeight: 600, color: "var(--color-accent-deep)" }}>
@@ -513,7 +576,7 @@ function NextSheet({
           <span style={{ fontSize: 11, color: "var(--color-slate-dim)" }}>taste match</span>
         </span>
       </button>
-      <p style={{ marginTop: 12, fontSize: 14, lineHeight: "21px", color: "var(--color-plum)" }}>{stop.blurb}</p>
+      <p className="next-blurb" style={{ marginTop: 12, fontSize: 14, lineHeight: "21px", color: "var(--color-plum)" }}>{stop.blurb}</p>
       <div style={{ display: "flex", gap: 6, marginTop: 12, overflow: "hidden" }}>
         {shares.map((share) => (
           <span key={share.entityId} className="chip" style={{ height: 30, fontSize: 13, background: "var(--cat-artists-wash)", color: "var(--cat-artists)", boxShadow: "none" }}>
@@ -529,10 +592,13 @@ function NextSheet({
         ) : null}
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-        <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onSkip}>
-          Skip
+        <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onSkip} disabled={skipping}>
+          {skipping ? "Re-routing…" : "Skip"}
         </button>
-        <button className="btn btn-primary" type="button" style={{ flex: 2 }} onClick={onOpen}>
+        <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onArrive}>
+          I’m here
+        </button>
+        <button className="btn btn-primary" type="button" style={{ flex: 1.4 }} onClick={onOpen}>
           Go · {stop.walkMin} min
         </button>
       </div>
@@ -569,7 +635,8 @@ function ToastText({ text }: { text: string }) {
 }
 
 function shortName(name: string): string {
-  return name.split(" ")[0] ?? name;
+  // "The Sunset Room" labels as "Sunset", not "The".
+  return name.replace(/^The\s+/i, "").split(" ")[0] ?? name;
 }
 
 function WalkList({
@@ -634,7 +701,7 @@ function RideBack({ lat, lon, label }: { lat: number; lon: number; label: string
   );
 }
 
-function HeadBack({ minutes, label, ride }: { minutes: number; label?: string; ride?: ReactNode }) {
+function HeadBack({ minutes, label, ride, onFinish }: { minutes: number; label?: string; ride?: ReactNode; onFinish: () => void }) {
   return (
     <>
       <div className="eyebrow" style={{ color: "var(--color-accent-deep)" }}>
@@ -647,6 +714,47 @@ function HeadBack({ minutes, label, ride }: { minutes: number; label?: string; r
         {label ? `The walk closes at ${label}.` : "The walk closes where you started."}
       </p>
       {ride}
+      <button className="btn btn-primary btn-block" type="button" style={{ marginTop: 16 }} onClick={onFinish}>
+        I’m back · finish walk
+      </button>
+    </>
+  );
+}
+
+function DoneSheet({
+  stops,
+  km,
+  onAgain,
+  onTastes,
+}: {
+  stops: Stop[];
+  km?: number;
+  onAgain: () => void;
+  onTastes: () => void;
+}) {
+  const visited = stops.filter((stop) => stop.state === "visited");
+  return (
+    <>
+      <div className="eyebrow" style={{ color: "var(--color-accent-deep)" }}>
+        Walk complete
+      </div>
+      <h2 className="display" style={{ fontSize: 24, lineHeight: "30px", margin: "8px 0 0" }}>
+        {visited.length === 1 ? "1 stop" : `${visited.length} stops`}
+        {km ? ` · ${km} km` : ""}
+      </h2>
+      <div style={{ marginTop: 6 }}>
+        {(visited.length ? visited : stops).slice(0, 4).map((stop) => (
+          <WalkRow key={`${stop.entityId}-${stop.state}`} stop={stop} />
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+        <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onTastes}>
+          Change tastes
+        </button>
+        <button className="btn btn-primary" type="button" style={{ flex: 2 }} onClick={onAgain}>
+          Plan another walk
+        </button>
+      </div>
     </>
   );
 }
@@ -654,7 +762,7 @@ function HeadBack({ minutes, label, ride }: { minutes: number; label?: string; r
 function WalkRow({ stop }: { stop: Stop }) {
   const skipped = stop.state === "skipped";
   const visited = stop.state === "visited";
-  const fresh = Boolean(stop.introduced);
+  const fresh = Boolean(stop.introduced) && !skipped && !visited;
   const mark = visited ? "✓" : skipped ? "–" : String(stop.seq);
   const bubble = visited
     ? { background: "#3d8a5a", color: "#fff" }
@@ -680,6 +788,12 @@ function WalkRow({ stop }: { stop: Stop }) {
       <div style={{ fontSize: 12, color: "var(--color-slate-dim)", fontVariantNumeric: "tabular-nums" }}>{time}</div>
     </div>
   );
+}
+
+/** A pin's label is its coordinates, which read badly in a sentence. */
+function placeLabel(label?: string): string | undefined {
+  if (!label || /^-?\d+\.\d+,\s*-?\d+\.\d+$/.test(label.trim())) return undefined;
+  return label;
 }
 
 function shortAddress(address: string): string {

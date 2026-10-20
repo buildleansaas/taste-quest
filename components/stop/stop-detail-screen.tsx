@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { useMinWidth } from "@/components/chrome/use-wide";
 import { STOP_FRAME, STOP_PAD, STOP_ZOOM_OUT } from "@/lib/map/austin-geometry";
+import { nextStop } from "@/lib/walk/progress";
 import { useQuest } from "@/store/use-quest";
 
 const TasteMap = dynamic(() => import("@/components/map/taste-map").then((mod) => mod.TasteMap), { ssr: false });
@@ -34,6 +35,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
   const version = walk?.versions[walk.versions.length - 1];
   const stop = version?.stops.find((item) => item.entityId === entityId);
   const single = (profile?.entities.length ?? 0) < 2;
+  const isNext = Boolean(walk && stop && nextStop(walk)?.entityId === stop.entityId && walk.status !== "done");
 
   useEffect(() => {
     if (!stop || stop.blurb || !profile || !walk) return;
@@ -201,15 +203,31 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
           )}
         </div>
         <div className="stop-actions">
-          <button
-            className="btn btn-cream"
-            type="button"
-            style={{ flex: 1, boxShadow: stop.closedNow ? "inset 0 0 0 2px var(--color-accent)" : undefined }}
-            onClick={() => router.push("/explore")}
-          >
-            Skip
-          </button>
-          <a className="btn btn-primary" style={{ flex: 2 }} href={maps} target="_blank" rel="noreferrer">
+          {isNext ? (
+            <>
+              <button
+                className="btn btn-cream"
+                type="button"
+                style={{ flex: 1, boxShadow: stop.closedNow ? "inset 0 0 0 2px var(--color-accent)" : undefined }}
+                onClick={() => router.push(`/explore?do=skip&id=${encodeURIComponent(stop.entityId)}`)}
+              >
+                Skip
+              </button>
+              <button
+                className="btn btn-cream"
+                type="button"
+                style={{ flex: 1 }}
+                onClick={() => router.push(`/explore?do=arrive&id=${encodeURIComponent(stop.entityId)}`)}
+              >
+                I’m here
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={() => router.push("/explore")}>
+              Back to walk
+            </button>
+          )}
+          <a className="btn btn-primary" style={{ flex: 1.4 }} href={maps} target="_blank" rel="noreferrer">
             Go · {stop.walkMin} min
           </a>
         </div>
@@ -219,7 +237,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
 }
 
 function shortName(name: string): string {
-  return name.split(" ")[0] ?? name;
+  return name.replace(/^The\s+/i, "").split(" ")[0] ?? name;
 }
 
 function mark(name: string): string {

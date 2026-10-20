@@ -591,15 +591,23 @@ html[data-frame="1"] .locate { bottom: calc(var(--sheet-h, 316px) + 14px); }
   justify-content: space-between;
   z-index: 5;
 }
-.stop-sheet { top: 250px; bottom: 0; }
-.stop-sheet-body { padding: 14px 22px 120px; }
+.stop-sheet { top: 250px; bottom: 0; overflow-y: auto; }
+.stop-sheet-body { padding: 14px 22px 8px; }
+/* Sticks to the bottom of the scrolling sheet, on an opaque fade, so the
+   "Because you like" rows scroll under the buttons instead of showing through. */
 .stop-actions {
-  position: absolute;
-  left: calc(22px + var(--sal));
-  right: calc(22px + var(--sar));
-  bottom: var(--stop-actions-bottom);
+  position: sticky;
+  bottom: 0;
+  padding: 16px calc(22px + var(--sar)) var(--stop-actions-bottom) calc(22px + var(--sal));
+  background: linear-gradient(#fcfaf800, var(--color-surface-raised) 28%);
   display: flex;
   gap: 10px;
+}
+/* The next-stop card has a fixed height on phones: one place line, three blurb lines. */
+.next-place { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: min(290px, calc(100vw - 118px)); }
+.next-blurb { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 767px) {
+  .next-blurb { -webkit-line-clamp: 2; }
 }
 html:not([data-frame="1"]) .explore-sheet {
   height: calc(var(--sheet-h, 316px) + var(--sab));
