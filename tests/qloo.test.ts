@@ -118,3 +118,17 @@ describe("categoryFromTags", () => {
     expect(categoryFromTags([], "Miradouro de Santa Catarina").category).toBe("park");
   });
 });
+
+describe("Qloo slot limiter", () => {
+  it("lets a 5th call through after the 1-second window, with nothing in flight", async () => {
+    const { acquireQlooSlot, releaseQlooSlot } = await import("@/lib/qloo/client");
+    for (let i = 0; i < 4; i += 1) {
+      await acquireQlooSlot();
+      releaseQlooSlot();
+    }
+    const started = Date.now();
+    await acquireQlooSlot();
+    releaseQlooSlot();
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+});
