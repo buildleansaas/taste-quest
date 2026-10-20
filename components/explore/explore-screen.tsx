@@ -43,6 +43,7 @@ export function ExploreScreen() {
   const [toast, setToast] = useState<string | null>(null);
   const [undoWalk, setUndoWalk] = useState<Walk | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [recenter, setRecenter] = useState(0);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(tick);
@@ -282,6 +283,8 @@ export function ExploreScreen() {
             zoomOut={zoomOut}
             fitPitch={wide}
             maxZoom={wide ? 16.2 : undefined}
+            interactive
+            fitKey={`${walk?.id ?? "none"}:${walk?.currentVersion ?? 0}:${wide ? "w" : "n"}:${recenter}`}
           />
         ) : null}
       </div>
@@ -302,22 +305,22 @@ export function ExploreScreen() {
             {done} of {stops.length || "–"} stops
           </span>
         </div>
-        <span className="icon-btn" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 20 20">
+        <button className="icon-btn" type="button" aria-label="Reset view" onClick={() => setRecenter((n) => n + 1)}>
+          <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M10 2l2.5 8H7.5z" fill="#e35a3a" />
             <path d="M10 18l-2.5-8h5z" fill="#a0aab4" />
           </svg>
-        </span>
+        </button>
       </div>
 
       {!online ? <p className="banner map-note">You’re offline. The saved route stays. New searches are paused.</p> : null}
       {route?.approximate ? <p className="approx-tag">approx.</p> : null}
       <div className="locate">
-        <span className="icon-btn" aria-hidden="true">
-          <svg width="18" height="18" viewBox="0 0 20 20">
+        <button className="icon-btn" type="button" aria-label="Recenter on route" onClick={() => setRecenter((n) => n + 1)}>
+          <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M17 3L3 9l6 2 2 6z" fill="#6f6fba" />
           </svg>
-        </span>
+        </button>
       </div>
 
       {pill ? (

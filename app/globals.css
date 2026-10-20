@@ -509,6 +509,8 @@ html[data-frame="1"] .home-ind { display: block; }
   background: linear-gradient(#f8f6f4e6, #f8f6f400);
 }
 .hud {
+  /* The bar spans the map; only its controls take clicks, so the map pans under the gaps. */
+  pointer-events: none;
   position: absolute;
   top: var(--hud-top);
   left: calc(16px + var(--sal));
@@ -521,7 +523,10 @@ html[data-frame="1"] .home-ind { display: block; }
 }
 .hud-chips { display: flex; gap: 8px; min-width: 0; }
 .explore-sheet { height: var(--sheet-h, 316px); }
+.hud > *, .locate > * { pointer-events: auto; }
+button.icon-btn { border: 0; padding: 0; cursor: pointer; }
 .locate {
+  pointer-events: none;
   position: absolute;
   right: calc(16px + var(--sar));
   bottom: calc(var(--sheet-h, 316px) + 14px + var(--sab));
