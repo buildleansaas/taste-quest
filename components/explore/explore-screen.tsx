@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { useMinWidth } from "@/components/chrome/use-wide";
@@ -43,6 +43,13 @@ export function ExploreScreen() {
   const [menu, setMenu] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [toastTitle, setToastTitle] = useState("Route updated");
+  // One timer for the toast, so an earlier edit's timer can't hide a newer
+  // toast (and its Undo) early.
+  const toastTimer = useRef<number | null>(null);
+  const flashToast = (ms: number) => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), ms);
+  };
   const [undoWalk, setUndoWalk] = useState<Walk | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [recenter, setRecenter] = useState(0);
@@ -273,7 +280,7 @@ export function ExploreScreen() {
         setUndoWalk(null);
         setToastTitle("Can't change that");
         setToast(body?.message ?? "Couldn't update. Your route is unchanged.");
-        window.setTimeout(() => setToast(null), 6000);
+        flashToast(6000);
         return;
       }
       const body = (await response.json()) as { walk: Walk; toast: string };
@@ -283,7 +290,7 @@ export function ExploreScreen() {
       if (edit.kind === "start") setStart({ ...body.walk.start });
       setPreview(null);
       setToast(body.toast);
-      window.setTimeout(() => setToast(null), 8000);
+      flashToast(8000);
     } catch {
       setUndoWalk(null);
       setToastTitle("Can't change that");
@@ -311,7 +318,7 @@ export function ExploreScreen() {
     setToastTitle("Route updated");
     setWalk(body.walk);
     setToast(body.toast);
-    window.setTimeout(() => setToast(null), 8000);
+    flashToast(8000);
   }
 
   const center: [number, number] = user ?? [-97.743, 30.267];
@@ -745,6 +752,7 @@ function WalkList({
 }) {
   const upcoming = stops.filter((stop) => stop.state === "todo" || stop.state === "next").map((stop) => stop.entityId);
   const [drag, setDrag] = useState<{ id: string; startY: number; dy: number } | null>(null);
+  const dragStart = useRef<{ id: string; y: number } | null>(null);
   const from = drag ? upcoming.indexOf(drag.id) : -1;
   const to = drag ? Math.min(upcoming.length - 1, Math.max(0, from + Math.round(drag.dy / ROW_H))) : -1;
   const shiftFor = (id: string): number => {
@@ -756,27 +764,37 @@ function WalkList({
     if (to < from && index >= to && index < from) return ROW_H;
     return 0;
   };
-  const finish = () => {
-    if (drag && onReorder && from !== to && from >= 0) {
-      const ids = [...upcoming];
-      ids.splice(from, 1);
-      ids.splice(to, 0, drag.id);
-      onReorder(ids);
-    }
+  // Read the distance from the pointer-up event, not from state: a quick drag
+  // can lift before React re-renders with the last move.
+  const finish = (id: string, clientY: number) => {
+    const started = dragStart.current;
+    dragStart.current = null;
     setDrag(null);
+    if (!started || started.id !== id || !onReorder) return;
+    const start = upcoming.indexOf(id);
+    const end = Math.min(upcoming.length - 1, Math.max(0, start + Math.round((clientY - started.y) / ROW_H)));
+    if (start < 0 || end === start) return;
+    const ids = [...upcoming];
+    ids.splice(start, 1);
+    ids.splice(end, 0, id);
+    onReorder(ids);
   };
   const handle = (id: string) =>
     onReorder && upcoming.length > 1
       ? {
           onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
             event.currentTarget.setPointerCapture(event.pointerId);
+            dragStart.current = { id, y: event.clientY };
             setDrag({ id, startY: event.clientY, dy: 0 });
           },
           onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
             setDrag((current) => (current && current.id === id ? { ...current, dy: event.clientY - current.startY } : current));
           },
-          onPointerUp: finish,
-          onPointerCancel: () => setDrag(null),
+          onPointerUp: (event: React.PointerEvent<HTMLElement>) => finish(id, event.clientY),
+          onPointerCancel: () => {
+            dragStart.current = null;
+            setDrag(null);
+          },
           onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
             const index = upcoming.indexOf(id);
             const target = event.key === "ArrowUp" ? index - 1 : event.key === "ArrowDown" ? index + 1 : -1;

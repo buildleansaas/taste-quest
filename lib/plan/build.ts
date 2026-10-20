@@ -502,7 +502,12 @@ export async function rerouteWalk(input: {
         chosen,
         prepared,
         plannedLeft,
-        current ? current.totals.walkMin + current.totals.dwellMin : plannedLeft,
+        // Before the edit: the route's walking plus time at stops still ahead.
+        // totals.dwellMin also counts visited and skipped stops.
+        current
+          ? current.totals.walkMin +
+              previous.filter((stop) => stop.state === "todo" || stop.state === "next").reduce((sum, stop) => sum + stop.dwellMin, 0)
+          : plannedLeft,
         remainingRaw,
       )
     : toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin);

@@ -818,7 +818,7 @@ html:not([data-frame="1"]) .explore-sheet {
 .link-btn { background: none; border: 0; padding: 0; font-size: 12px; font-weight: 600; color: var(--color-accent-deep); cursor: pointer; }
 .walk-row { position: relative; background: var(--color-surface); transition: transform 120ms ease; }
 .walk-row.dragging { transition: none; z-index: 2; box-shadow: var(--shadow-control); border-radius: 12px; }
-.drag-handle { touch-action: none; cursor: grab; color: var(--color-slate-pale); font-size: 14px; letter-spacing: -2px; padding: 8px 2px; user-select: none; }
+.drag-handle { touch-action: none; cursor: grab; color: var(--color-slate-dim); font-size: 15px; letter-spacing: -2px; padding: 8px 2px; user-select: none; }
 .drag-handle:active { cursor: grabbing; }
 .row-remove { background: none; border: 0; width: 28px; height: 28px; border-radius: 50%; color: var(--color-slate-dim); font-size: 18px; line-height: 1; cursor: pointer; }
 .row-remove:hover { background: var(--color-surface-alt); }

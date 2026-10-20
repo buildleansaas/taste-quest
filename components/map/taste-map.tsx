@@ -350,6 +350,14 @@ function paint(
     });
   });
 
+  // The user dot goes in first so pins stack above it: at the start of a loop
+  // it sits on the start pin, which must stay grabbable.
+  if (props.user) {
+    const el = document.createElement("div");
+    el.className = "user";
+    el.innerHTML = '<div class="halo"></div><div class="cone"></div><div class="pulse"></div><div class="core"></div>';
+    markers.current.push(new maplibregl.Marker({ element: el, pitchAlignment: "map" }).setLngLat(props.user).addTo(map));
+  }
   for (const pin of props.pins) {
     const el = document.createElement("div");
     el.className = `pin ${pin.cls ?? ""}`;
@@ -393,12 +401,8 @@ function paint(
       });
     }
     markers.current.push(marker.addTo(map));
-  }
-  if (props.user) {
-    const el = document.createElement("div");
-    el.className = "user";
-    el.innerHTML = '<div class="halo"></div><div class="cone"></div><div class="pulse"></div><div class="core"></div>';
-    markers.current.push(new maplibregl.Marker({ element: el, pitchAlignment: "map" }).setLngLat(props.user).addTo(map));
+    // addTo() labels every marker "Map marker"; restore ours after it.
+    if (pin.title) el.setAttribute("aria-label", pin.title);
   }
 
   if (!moveCamera) return;
