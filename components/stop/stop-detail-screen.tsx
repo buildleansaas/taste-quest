@@ -97,9 +97,11 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
           zoom={swan ? 16.4 : 16.2}
           pitch={40}
           bearing={-18}
-          frame={swan ? STOP_FRAME : undefined}
-          pad={swan ? (wide ? { top: 72, bottom: 72, left: 48, right: 48 } : STOP_PAD) : undefined}
-          zoomOut={swan ? (wide ? -0.05 : STOP_ZOOM_OUT) : 0.1}
+          frame={swan ? (wide ? version.route.geometry.coordinates : STOP_FRAME) : undefined}
+          pad={swan ? (wide ? { top: 88, bottom: 72, left: 72, right: 72 } : STOP_PAD) : undefined}
+          zoomOut={swan ? (wide ? 0.2 : STOP_ZOOM_OUT) : 0.1}
+          fitPitch={wide && swan}
+          maxZoom={wide ? 15.6 : undefined}
           routes={[{ coords: version.route.geometry.coordinates, dashed: version.route.approximate }]}
           pins={pins}
         />

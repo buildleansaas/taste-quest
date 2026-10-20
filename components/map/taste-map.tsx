@@ -34,6 +34,9 @@ type Props = {
   frame?: [number, number][];
   pad?: MapPad;
   zoomOut?: number;
+  /** Fit the frame with the pitched camera, so desktop bounds stay on screen. */
+  fitPitch?: boolean;
+  maxZoom?: number;
   onPick?: (lat: number, lon: number) => void;
   className?: string;
 };
@@ -65,6 +68,8 @@ export function TasteMap({
   frame,
   pad,
   zoomOut = 0.1,
+  fitPitch = false,
+  maxZoom,
   onPick,
   className,
 }: Props) {
@@ -73,8 +78,8 @@ export function TasteMap({
   const markers = useRef<maplibregl.Marker[]>([]);
   const pick = useRef(onPick);
   pick.current = onPick;
-  const scene = useRef({ center, zoom, pitch, bearing, routes, pins, user, frame, pad, zoomOut });
-  scene.current = { center, zoom, pitch, bearing, routes, pins, user, frame, pad, zoomOut };
+  const scene = useRef({ center, zoom, pitch, bearing, routes, pins, user, frame, pad, zoomOut, fitPitch, maxZoom });
+  scene.current = { center, zoom, pitch, bearing, routes, pins, user, frame, pad, zoomOut, fitPitch, maxZoom };
 
   useEffect(() => {
     if (!node.current || mapRef.current) return;
@@ -140,7 +145,7 @@ export function TasteMap({
     } catch (err) {
       console.warn("map paint", err);
     }
-  }, [routes, pins, user, center, zoom, pitch, bearing, frame, pad, zoomOut]);
+  }, [routes, pins, user, center, zoom, pitch, bearing, frame, pad, zoomOut, fitPitch, maxZoom]);
 
   return <div ref={node} className={className ?? "map-fill"} />;
 }
@@ -221,6 +226,8 @@ function paint(
     frame?: [number, number][];
     pad?: MapPad;
     zoomOut: number;
+    fitPitch?: boolean;
+    maxZoom?: number;
   },
   markers: MutableRefObject<maplibregl.Marker[]>,
 ) {
@@ -301,11 +308,21 @@ function paint(
     const height = map.getContainer().clientHeight || 1;
     const width = map.getContainer().clientWidth || 1;
     const pad = fitPad(props.pad, width, height);
-    const camera = map.cameraForBounds(bounds, { padding: pad, bearing: props.bearing || 0 });
+    const fittedZoom = props.maxZoom;
+    // Omit maxZoom when unset. MapLibre copies the key even if the value is
+    // undefined and then Math.min(zoom, undefined) is NaN, which skips the fit.
+    const camera = map.cameraForBounds(bounds, {
+      padding: pad,
+      bearing: props.bearing || 0,
+      ...(props.fitPitch ? { pitch: props.pitch || 0 } : {}),
+      ...(fittedZoom != null ? { maxZoom: fittedZoom } : {}),
+    });
     if (camera && camera.zoom != null && Number.isFinite(camera.zoom)) {
+      const raw = camera.zoom - (props.zoomOut ?? 0.1);
+      const zoom = fittedZoom != null ? Math.min(raw, fittedZoom) : raw;
       map.jumpTo({
         center: camera.center,
-        zoom: camera.zoom - (props.zoomOut ?? 0.1),
+        zoom,
         bearing: props.bearing || 0,
         pitch: props.pitch || 0,
       });

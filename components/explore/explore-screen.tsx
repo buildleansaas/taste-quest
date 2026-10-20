@@ -185,13 +185,20 @@ export function ExploreScreen() {
     : [];
   const listed = stops.some((stop) => stop.state === "visited" || stop.state === "skipped");
   const design = walk?.poolKey === DESIGN_POOL;
-  const frame = design ? (listed ? REROUTE_FRAME : EXPLORE_FRAME) : undefined;
+  const routePts = route?.geometry.coordinates ?? [];
+  const frame = wide && routePts.length > 1
+    ? routePts
+    : design
+      ? (listed ? REROUTE_FRAME : EXPLORE_FRAME)
+      : routePts.length > 1
+        ? routePts
+        : undefined;
   const pad = wide
-    ? { top: 88, bottom: 40, left: 456, right: 48 }
+    ? { top: 128, bottom: 72, left: 24 + 400 + 64, right: 96 }
     : listed
       ? REROUTE_PAD
       : EXPLORE_PAD;
-  const zoomOut = listed ? REROUTE_ZOOM_OUT : EXPLORE_ZOOM_OUT;
+  const zoomOut = wide ? 0.15 : listed ? REROUTE_ZOOM_OUT : EXPLORE_ZOOM_OUT;
   const cursor = walk?.cursor;
   const fixNearDesign =
     !design ||
@@ -259,6 +266,8 @@ export function ExploreScreen() {
             frame={frame}
             pad={pad}
             zoomOut={zoomOut}
+            fitPitch={wide}
+            maxZoom={wide ? 16.2 : undefined}
           />
         ) : null}
       </div>
@@ -352,6 +361,32 @@ export function ExploreScreen() {
                 ) : null
               }
             />
+          ) : next && wide ? (
+            <>
+              <NextSheet
+                stop={next}
+                index={stops.filter((stop) => stop.state !== "skipped").findIndex((stop) => stop.entityId === next.entityId) + 1}
+                total={stops.filter((stop) => stop.state !== "skipped").length}
+                onSkip={() => void skip()}
+                onOpen={() => router.push(`/stop/${encodeURIComponent(next.entityId)}`)}
+              />
+              <div className="sheet-list">
+                <WalkList
+                  stops={stops}
+                  totals={version?.totals}
+                  closing={
+                    returnMin > 0
+                      ? `${shape === "end-near" ? "End near" : "Back to start"} · ${returnMin} min`
+                      : undefined
+                  }
+                  ride={
+                    showRide && origin ? (
+                      <RideBack lat={origin.lat} lon={origin.lon} label={origin.label ?? "Start"} />
+                    ) : null
+                  }
+                />
+              </div>
+            </>
           ) : next ? (
             <NextSheet
               stop={next}
