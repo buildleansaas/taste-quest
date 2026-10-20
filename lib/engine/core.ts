@@ -504,7 +504,15 @@ export function selectStops(pool: Scored[], start: LatLon, opts: SelectOpts): Ch
   const cap = stopCap(opts.mode);
   const shape = opts.shape ?? "loop";
   const terminus = terminusFor(start, shape, opts.end);
-  const ranked = [...pool].sort((a, b) => b.baseScore - a.baseScore).slice(0, 40);
+  // Places open on a direct walk from the start rank ahead of places that open
+  // later, so a wide hours window never crowds open-now places out of the 40.
+  const openSoon = (cand: Scored) =>
+    isOpenAt(cand.hours, opts.weekday, new Date(opts.departAt.getTime() + walkMinutes(start, cand, opts.pace) * 60_000));
+  const byScore = (a: Scored, b: Scored) => b.baseScore - a.baseScore;
+  const ranked = [
+    ...pool.filter(openSoon).sort(byScore),
+    ...pool.filter((cand) => !openSoon(cand)).sort(byScore),
+  ].slice(0, 40);
   let seq: Scored[] = [];
 
   while (seq.length < cap) {

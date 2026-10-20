@@ -224,6 +224,9 @@ export async function placesNear(input: {
       entities: input.entities.filter((entity) => !entity.id.startsWith("sample-")),
       tags: input.tags.filter((tag) => !tag.id.startsWith("sample-")),
     };
+    // No real signals left: return nothing (the plan shows "not enough taste
+    // matches") rather than send Qloo an empty or signal-less query.
+    if (!input.entities.length && !input.tags.length) return [];
   }
   if (!qlooConfigured() || !input.allowLive) {
     return samplePlacesNear(input.lat, input.lon, {
@@ -241,15 +244,17 @@ export async function placesNear(input: {
       "filter.location.radius": input.radius,
       "filter.hours": input.weekday,
       "filter.exclude.tags": EXCLUDE,
-      "signal.interests.entities": input.entities.map((entity) => ({
-        id: entity.id,
-        weight: entity.weight ?? 1,
-      })),
       "feature.explainability": true,
       "bias.quality": "low",
       take: 50,
       offset: input.offset ?? 0,
     };
+    if (input.entities.length) {
+      body["signal.interests.entities"] = input.entities.map((entity) => ({
+        id: entity.id,
+        weight: entity.weight ?? 1,
+      }));
+    }
     if (input.tags.length) {
       body["signal.interests.tags"] = input.tags.map((tag) => ({
         tag: tag.id,

@@ -434,6 +434,28 @@ describe("review fixes", () => {
     expect(prepareCandidates([bar], { ...base, departAt: half3, windowMin: 120 })).toHaveLength(1);
   });
 
+  it("keeps open-now places in the running when many open later", () => {
+    const late = { saturday: [{ opens: "T21:00:00", closes: "T23:59:00" }] };
+    const now = { saturday: [{ opens: "T09:00:00", closes: "T23:00:00" }] };
+    const pool: Scored[] = [
+      ...Array.from({ length: 40 }, (_, i) =>
+        scored({ entityId: `late-${i}`, lat: 30.268 + i * 1e-4, lon: -97.742, baseScore: 2, category: "bar", hours: late }),
+      ),
+      ...Array.from({ length: 5 }, (_, i) =>
+        scored({ entityId: `now-${i}`, lat: 30.267 + i * 3e-4, lon: -97.743, baseScore: 1, hours: now }),
+      ),
+    ];
+    const chosen = selectStops(pool, { lat: 30.2684, lon: -97.7427 }, {
+      budgetMin: 120,
+      pace: "easy",
+      mode: "2h",
+      departAt: new Date(Date.UTC(2026, 9, 24, 15, 0)),
+      weekday: saturday,
+    });
+    expect(chosen.length).toBeGreaterThan(0);
+    expect(chosen.every((stop) => stop.entityId.startsWith("now-"))).toBe(true);
+  });
+
   it("never prints 60 minutes", () => {
     expect(formatMinutes(119.6)).toBe("2h 00m");
     expect(formatMinutes(59.7)).toBe("1h 00m");
