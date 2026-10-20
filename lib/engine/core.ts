@@ -26,11 +26,13 @@ const DWELL: Record<string, number> = {
 };
 
 const AFFINITY_SPREAD = 0.2;
-const OUTDOOR = /park|trail|rooftop|garden|outdoor|plaza/i;
-const EVENING = /nightlife|evening|live_music|bar|night/i;
+// Matched against Qloo category tags only. Amenity tags like "Parking" or
+// "Full bar" made most of downtown outdoor (rain penalty) or evening.
+const OUTDOOR = /\b(park|trail|rooftop|garden|outdoor|plaza|beach|viewpoint)\b/i;
+const EVENING = /\b(nightlife|night ?club|live music|bar|pub|lounge|cocktail)\b/i;
 const DENY = /parking|hotel|lodging|nail|gas station|gas_station|\batm\b|car wash|hospital/i;
-// Places nobody walks to on a taste walk. Checked against the name and Qloo's
-// category tags only, since other tags ("near a college") are context.
+// Places nobody walks to on a taste walk. Checked against the primary category
+// label, never the name ("School of Rock" is a bar) or context tags.
 const NOT_A_STOP =
   /\b(coworking|office|business school|school|college|university|academic|alumni|gym|fitness|crossfit|apartments?|furnished|wedding venue|convention center|tattoo|piercing|animal rescue|rowing club|boat club|dance class|corporate|bank|dentist|clinic|pharmacy|real estate|tour operator|tour agency|travel agency|car rental|boat rental)\b/i;
 
@@ -259,7 +261,9 @@ function categoryTagText(tags: PlaceTag[]): string {
 
 function denied(candidate: Candidate): boolean {
   if (DENY.test(candidate.name) || DENY.test(candidate.categoryLabel)) return true;
-  if (NOT_A_STOP.test(candidate.categoryLabel) || NOT_A_STOP.test(categoryTagText(candidate.tags))) return true;
+  // Primary label only: real stops often carry secondary categories such as
+  // "Wedding venue" (breweries) or "University" (campus museums).
+  if (NOT_A_STOP.test(candidate.categoryLabel)) return true;
   // Category tags only: most live places carry an amenity tag like "Parking"
   // or "Near a hotel", and checking every tag dropped nearly all of downtown.
   return DENY.test(categoryTagText(candidate.tags));
@@ -334,10 +338,10 @@ export function prepareCandidates(
       affinityNorm ** 1.5 * (1 + 0.15 * tagOverlap.length);
     const outdoor =
       candidate.category === "park" ||
-      candidate.tags.some((tag) => OUTDOOR.test(tag.name) || OUTDOOR.test(tag.id));
+      OUTDOOR.test(categoryTagText(candidate.tags));
     if (opts.rainy && outdoor) score *= 0.3;
     const eveningish =
-      candidate.tags.some((tag) => EVENING.test(tag.name) || EVENING.test(tag.id)) ||
+      EVENING.test(categoryTagText(candidate.tags)) ||
       candidate.category === "bar" ||
       candidate.category === "live_music";
     if (opts.evening && eveningish) score *= 1.15;

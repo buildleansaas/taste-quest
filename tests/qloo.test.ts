@@ -132,3 +132,30 @@ describe("Qloo slot limiter", () => {
     expect(Date.now() - started).toBeLessThan(1500);
   });
 });
+
+describe("review round 1 (PR #23)", () => {
+  it("matches accented words and bar-named cafes and restaurants", () => {
+    expect(categoryFromTags([], "Café Tortoni").category).toBe("cafe");
+    expect(categoryFromTags([{ id: "urn:tag:category:place:sushi_bar", name: "Sushi bar", type: "urn:tag:category:place" }], "Uchi").category).toBe("restaurant");
+    expect(categoryFromTags([{ id: "urn:tag:category:place:espresso_bar", name: "Espresso bar", type: "urn:tag:category:place" }], "Houndstooth").category).toBe("cafe");
+  });
+
+  it("keeps category tags after the 12-tag trim", () => {
+    const context = Array.from({ length: 20 }, (_, i) => ({ id: `urn:tag:amenity:qloo:a${i}`, name: `Amenity ${i}`, type: "urn:tag:amenity:qloo" }));
+    const payload = {
+      results: {
+        entities: [
+          {
+            entity_id: "e1",
+            name: "Some Place",
+            query: { affinity: 0.8 },
+            location: { lat: 30.27, lon: -97.74 },
+            tags: [...context, { id: "urn:tag:category:place:coworking_space", name: "Coworking space", type: "urn:tag:category:place" }],
+          },
+        ],
+      },
+    };
+    const [place] = normalizeEntities(payload, new Map());
+    expect(place?.tags.some((tag) => tag.id.includes("category:place"))).toBe(true);
+  });
+});

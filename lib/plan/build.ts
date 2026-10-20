@@ -55,7 +55,7 @@ function poolCacheKey(profile: TasteProfile, hash: string, radius: number, weekd
     `${profile.entities.map((e) => e.id).sort().join(",")}|${profile.tags.map((t) => t.id).sort().join(",")}`,
   );
   // Bump the version when normalized Candidate fields change, so cached pools are not reused.
-  return `qp:v4:${signature}:${hash}:${radius}:${weekday}`;
+  return `qp:v5:${signature}:${hash}:${radius}:${weekday}`;
 }
 
 async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean): Promise<{
@@ -79,15 +79,22 @@ async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean)
   let current = radius;
   let collected: Candidate[] = [];
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const page = await placesNear({
-      lat: input.start.lat,
-      lon: input.start.lon,
-      radius: current,
-      weekday,
-      entities: profile.entities,
-      tags: profile.tags,
-      allowLive: liveAllowed,
-    });
+    let page: Candidate[];
+    try {
+      page = await placesNear({
+        lat: input.start.lat,
+        lon: input.start.lon,
+        radius: current,
+        weekday,
+        entities: profile.entities,
+        tags: profile.tags,
+        allowLive: liveAllowed,
+      });
+    } catch (error) {
+      // A later widen page failing (timeout, busy) keeps the pages we have.
+      if (attempt === 0 || !collected.length) throw error;
+      break;
+    }
     collected = page;
     const usable = prepareCandidates(page, {
       departAt: departAt(input),
@@ -110,7 +117,7 @@ async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean)
         tags: profile.tags,
         offset: 50,
         allowLive: liveAllowed,
-      });
+      }).catch(() => [] as Candidate[]);
       const seen = new Set(collected.map((item) => item.entityId));
       collected = [...collected, ...more.filter((item) => !seen.has(item.entityId))];
     }
