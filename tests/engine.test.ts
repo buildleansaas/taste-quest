@@ -475,3 +475,19 @@ describe("live tag noise", () => {
     expect(prepareCandidates([office], { departAt: evening, weekday: saturday, pace: "easy", dropIds: [], userTags: [], rainy: false, evening: true, windowMin: 600 })).toHaveLength(0);
   });
 });
+
+describe("deny list", () => {
+  it("keeps a place that merely offers parking", () => {
+    const cafe: Candidate = {
+      ...SAMPLE_PLACES[0],
+      entityId: "voodoo",
+      name: "Voodoo Doughnut",
+      categoryLabel: "Donut shop",
+      tags: [{ id: "urn:tag:amenity:qloo:parking", name: "Parking", type: "urn:tag:amenity:qloo" }],
+      hours: undefined,
+    };
+    const lot: Candidate = { ...cafe, entityId: "lot", name: "Lot 5", categoryLabel: "Parking lot", tags: [{ id: "urn:tag:category:place:parking_lot", name: "Parking lot", type: "urn:tag:category:place" }] };
+    const kept = prepareCandidates([cafe, lot], { departAt: evening, weekday: saturday, pace: "easy", dropIds: [], userTags: [], rainy: false, evening: true });
+    expect(kept.map((c) => c.entityId)).toEqual(["voodoo"]);
+  });
+});

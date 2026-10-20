@@ -259,7 +259,9 @@ function categoryTagText(tags: PlaceTag[]): string {
 function denied(candidate: Candidate): boolean {
   if (DENY.test(candidate.name) || DENY.test(candidate.categoryLabel)) return true;
   if (NOT_A_STOP.test(candidate.categoryLabel) || NOT_A_STOP.test(categoryTagText(candidate.tags))) return true;
-  return candidate.tags.some((tag) => DENY.test(tag.name) || DENY.test(tag.id));
+  // Category tags only: most live places carry an amenity tag like "Parking"
+  // or "Near a hotel", and checking every tag dropped nearly all of downtown.
+  return DENY.test(categoryTagText(candidate.tags));
 }
 
 export type Scored = Candidate & {
