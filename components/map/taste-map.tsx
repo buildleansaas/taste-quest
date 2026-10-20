@@ -37,6 +37,13 @@ type Props = {
   /** Fit the frame with the pitched camera, so desktop bounds stay on screen. */
   fitPitch?: boolean;
   maxZoom?: number;
+  /**
+   * When set, the camera fits the scene only when this key changes (a new
+   * route, or a Recenter tap) or before the user has moved the map. Overlay
+   * updates such as a new GPS fix then never pull the camera away from where
+   * the user panned. When unset, every update moves the camera (legacy).
+   */
+  fitKey?: string;
   onPick?: (lat: number, lon: number) => void;
   className?: string;
 };
@@ -70,6 +77,7 @@ export function TasteMap({
   zoomOut = 0.1,
   fitPitch = false,
   maxZoom,
+  fitKey,
   onPick,
   className,
 }: Props) {
@@ -78,6 +86,20 @@ export function TasteMap({
   const markers = useRef<maplibregl.Marker[]>([]);
   const pick = useRef(onPick);
   pick.current = onPick;
+  const fitted = useRef<string | undefined>(undefined);
+  const userMoved = useRef(false);
+  const fitKeyRef = useRef(fitKey);
+  fitKeyRef.current = fitKey;
+  const shouldFit = () => {
+    const key = fitKeyRef.current;
+    if (key === undefined) return true;
+    if (key !== fitted.current) {
+      fitted.current = key;
+      userMoved.current = false;
+      return true;
+    }
+    return !userMoved.current;
+  };
   const scene = useRef({ center, zoom, pitch, bearing, routes, pins, user, frame, pad, zoomOut, fitPitch, maxZoom });
   scene.current = { center, zoom, pitch, bearing, routes, pins, user, frame, pad, zoomOut, fitPitch, maxZoom };
 
@@ -102,11 +124,19 @@ export function TasteMap({
       if (!map.getStyle()?.layers?.length) return;
       try {
         recolor(map);
-        paint(map, scene.current, markers);
+        paint(map, scene.current, markers, shouldFit());
       } catch (err) {
         console.warn("map paint", err);
       }
     };
+    // Only gestures carry an originalEvent; our own jumpTo calls do not.
+    const markMoved = (event: { originalEvent?: unknown }) => {
+      if (event.originalEvent) userMoved.current = true;
+    };
+    map.on("dragstart", markMoved);
+    map.on("zoomstart", markMoved);
+    map.on("rotatestart", markMoved);
+    map.on("pitchstart", markMoved);
     map.on("style.load", apply);
     map.on("error", (event) => {
       console.warn("map", event.error?.message ?? event);
@@ -141,11 +171,12 @@ export function TasteMap({
     if (!map?.getStyle()?.layers?.length) return;
     try {
       if (!map.getLayer("b3d")) recolor(map);
-      paint(map, scene.current, markers);
+      paint(map, scene.current, markers, shouldFit());
     } catch (err) {
       console.warn("map paint", err);
     }
-  }, [routes, pins, user, center, zoom, pitch, bearing, frame, pad, zoomOut, fitPitch, maxZoom]);
+    // shouldFit reads fitKey through a ref; fitKey is listed so a Recenter repaints.
+  }, [routes, pins, user, center, zoom, pitch, bearing, frame, pad, zoomOut, fitPitch, maxZoom, fitKey]);
 
   return <div ref={node} className={className ?? "map-fill"} />;
 }
@@ -230,6 +261,7 @@ function paint(
     maxZoom?: number;
   },
   markers: MutableRefObject<maplibregl.Marker[]>,
+  moveCamera = true,
 ) {
   markers.current.forEach((marker) => marker.remove());
   markers.current = [];
@@ -307,6 +339,7 @@ function paint(
     markers.current.push(new maplibregl.Marker({ element: el, pitchAlignment: "map" }).setLngLat(props.user).addTo(map));
   }
 
+  if (!moveCamera) return;
   if (props.frame && props.frame.length > 1) {
     const bounds = new maplibregl.LngLatBounds();
     props.frame.forEach((point) => bounds.extend(point));
