@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { useMinWidth } from "@/components/chrome/use-wide";
 import { TasteMap, type MapPin, type MapRoute } from "@/components/map/taste-map";
 import { readUiStream } from "@/lib/client/stream";
+import { haversineM, shouldOfferRide } from "@/lib/engine/core";
 import {
   EXPLORE_FRAME,
   EXPLORE_PAD,
@@ -91,6 +92,8 @@ export function ExploreScreen() {
         budgetMin: budget.minutes,
         pace: budget.pace,
         mode: budget.mode,
+        shape: budget.shape ?? "loop",
+        end: budget.end,
         demo: start.source === "demo",
         tz,
       }),
@@ -154,7 +157,11 @@ export function ExploreScreen() {
       ? [start.lon, start.lat]
       : undefined;
 
-  const pins: MapPin[] = stops
+  const shape = walk?.shape ?? budget?.shape ?? "loop";
+  const origin = shape === "end-near" ? (walk?.end ?? budget?.end ?? start) : start;
+  const returnMin = walk?.returnMin ?? 0;
+  const showRide = Boolean(origin && returnMin > 0 && shouldOfferRide(returnMin, walk?.isDemo ? 19 : new Date().getHours()));
+  const stopPins: MapPin[] = stops
     .filter((stop) => stop.state !== "visited" && stop.state !== "vetoed")
     .map((stop) => {
       if (stop.state === "skipped") {
@@ -197,6 +204,19 @@ export function ExploreScreen() {
       : cursor
         ? [cursor.lon, cursor.lat]
         : user;
+  const homeAway = Boolean(origin && dot && haversineM({ lat: dot[1], lon: dot[0] }, origin) > 80);
+  const pins: MapPin[] =
+    origin && shape !== "one-way"
+      ? [
+          {
+            n: "",
+            ll: [origin.lon, origin.lat],
+            cls: "home",
+            label: homeAway ? (shape === "end-near" ? "End" : "Start") : undefined,
+          },
+          ...stopPins,
+        ]
+      : stopPins;
 
   async function skip() {
     if (!walk || !profile || !next || !online) return;
@@ -219,9 +239,11 @@ export function ExploreScreen() {
   }
 
   const center: [number, number] = user ?? [-97.743, 30.267];
-  const minutesLeft = walk?.remainingMin ?? walk?.budgetMin ?? budget?.minutes ?? 0;
+  const minutesLeft = walk?.headingBack
+    ? (walk.returnMin ?? returnMin)
+    : (walk?.remainingMin ?? walk?.budgetMin ?? budget?.minutes ?? 0);
   const leftLabel = formatLeft(minutesLeft ?? 0);
-  const sheetH = listed ? 300 : planning && !next ? 220 : 316;
+  const sheetH = walk?.headingBack ? 248 : listed ? (returnMin > 0 ? 360 : 300) : planning && !next ? 220 : 316;
 
   return (
     <main className="screen map-screen" style={{ ["--sheet-h" as string]: `${sheetH}px` }}>
@@ -309,8 +331,27 @@ export function ExploreScreen() {
                 </button>
               </div>
             </>
+          ) : walk?.headingBack && origin ? (
+            <HeadBack
+              minutes={returnMin}
+              label={origin.label ?? walk.start.label}
+              ride={showRide ? <RideBack lat={origin.lat} lon={origin.lon} label={origin.label ?? walk.start.label ?? "Start"} /> : null}
+            />
           ) : listed ? (
-            <WalkList stops={stops} totals={version?.totals} />
+            <WalkList
+              stops={stops}
+              totals={version?.totals}
+              closing={
+                returnMin > 0
+                  ? `${shape === "end-near" ? "End near" : "Back to start"} · ${returnMin} min`
+                  : undefined
+              }
+              ride={
+                showRide && origin ? (
+                  <RideBack lat={origin.lat} lon={origin.lon} label={origin.label ?? "Start"} />
+                ) : null
+              }
+            />
           ) : next ? (
             <NextSheet
               stop={next}
@@ -479,7 +520,17 @@ function shortName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
 
-function WalkList({ stops, totals }: { stops: Stop[]; totals?: { walkMin: number; km: number } }) {
+function WalkList({
+  stops,
+  totals,
+  closing,
+  ride,
+}: {
+  stops: Stop[];
+  totals?: { walkMin: number; km: number };
+  closing?: string;
+  ride?: ReactNode;
+}) {
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -494,7 +545,56 @@ function WalkList({ stops, totals }: { stops: Stop[]; totals?: { walkMin: number
         {stops.map((stop) => (
           <WalkRow key={`${stop.entityId}-${stop.state}`} stop={stop} />
         ))}
+        {closing ? <WalkReturn label={closing} /> : null}
+        {ride}
       </div>
+    </>
+  );
+}
+
+function WalkReturn({ label }: { label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, height: 44 }}>
+      <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--color-ink)", color: "#fff" }}>
+        <svg width="13" height="13" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M3.5 9.2 10 3.8l6.5 5.4V16.5H12v-4.2H8v4.2H3.5z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{label}</div>
+    </div>
+  );
+}
+
+function RideBack({ lat, lon, label }: { lat: number; lon: number; label: string }) {
+  const nick = encodeURIComponent(label || "Start");
+  const uber = `https://m.uber.com/ul/?action=setPickup&pickup=my_location&dropoff[latitude]=${lat}&dropoff[longitude]=${lon}&dropoff[nickname]=${nick}`;
+  const lyft = `https://lyft.com/ride?id=lyft&destination[latitude]=${lat}&destination[longitude]=${lon}`;
+  return (
+    <div className="ride-row">
+      <span style={{ fontSize: 12, color: "var(--color-slate-dim)", alignSelf: "center" }}>Ride back</span>
+      <a href={uber} target="_blank" rel="noreferrer">
+        Uber
+      </a>
+      <a href={lyft} target="_blank" rel="noreferrer">
+        Lyft
+      </a>
+    </div>
+  );
+}
+
+function HeadBack({ minutes, label, ride }: { minutes: number; label?: string; ride?: ReactNode }) {
+  return (
+    <>
+      <div className="eyebrow" style={{ color: "var(--color-accent-deep)" }}>
+        Loop
+      </div>
+      <h2 className="display" style={{ fontSize: 24, lineHeight: "30px", margin: "8px 0 0" }}>
+        Time to head back · {Math.max(1, Math.round(minutes))} min
+      </h2>
+      <p style={{ marginTop: 8, color: "var(--color-slate)", fontSize: 14, lineHeight: "21px" }}>
+        {label ? `The walk closes at ${label}.` : "The walk closes where you started."}
+      </p>
+      {ride}
     </>
   );
 }

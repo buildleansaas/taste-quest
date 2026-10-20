@@ -3,17 +3,23 @@ import {
   dwellMinutes,
   haversineM,
   isOpenAt,
+  openThrough,
+  orderNoteFor,
+  plannedMinutes,
   prepareCandidates,
   radiusM,
   selectStops,
   shouldAutoReroute,
+  shouldHeadBack,
+  shouldOfferRide,
   twoOpt,
   type Scored,
 } from "@/lib/engine/core";
 import { SAMPLE_PLACES } from "@/lib/qloo/sample";
 import { demoProfile, DEMO_START } from "@/lib/taste/curated";
-import { buildWalk } from "@/lib/plan/build";
-import type { Candidate } from "@/lib/types";
+import { buildWalk, rerouteWalk } from "@/lib/plan/build";
+import { designReroute } from "@/lib/plan/design-walk";
+import type { Candidate, Walk } from "@/lib/types";
 
 const saturday = "saturday";
 const evening = new Date(Date.UTC(2026, 9, 24, 19, 0));
@@ -113,13 +119,12 @@ describe("selection", () => {
     });
     expect(chosen.length).toBeGreaterThan(0);
     expect(chosen.length).toBeLessThanOrEqual(4);
-    let minutes = 0;
-    let prev: { lat: number; lon: number } = DEMO_START;
-    for (const stop of chosen) {
-      minutes += (haversineM(prev, stop) * 1.3) / ((4 * 1000) / 60) + stop.dwellMin;
-      prev = stop;
-    }
+    const minutes = plannedMinutes(DEMO_START, chosen, "easy", DEMO_START);
     expect(minutes).toBeLessThanOrEqual(115.01);
+    if (chosen.length) {
+      const home = walkMinutesHome(chosen[chosen.length - 1], DEMO_START);
+      expect(minutes).toBeGreaterThan(home);
+    }
   });
 
   it("never lengthens the route in 2-opt", () => {
@@ -173,6 +178,15 @@ describe("demo plan", () => {
     ]);
     expect(version.route.approximate).toBe(false);
     expect(version.route.geometry.coordinates.length).toBeGreaterThan(50);
+    const last = version.route.geometry.coordinates.at(-1);
+    expect(last?.[0]).toBeCloseTo(DEMO_START.lon, 3);
+    expect(last?.[1]).toBeCloseTo(DEMO_START.lat, 3);
+    expect(walk.shape).toBe("loop");
+    expect(walk.returnMin).toBe(14);
+    const rerouted = designReroute(walk).walk.versions.at(-1);
+    const rerouteEnd = rerouted?.route.geometry.coordinates.at(-1);
+    expect(rerouteEnd?.[0]).toBeCloseTo(DEMO_START.lon, 3);
+    expect(rerouteEnd?.[1]).toBeCloseTo(DEMO_START.lat, 3);
     expect(version.stops[0]?.blurb).toMatch(/blues since 1975/);
     for (const stop of version.stops) {
       const sum = stop.evidence.entityShares.reduce((total, share) => total + share.share, 0);
@@ -193,6 +207,200 @@ describe("radius and dwell", () => {
     expect(dwellMinutes("bar", "brisk")).toBe(35);
   });
 });
+
+describe("loop and order", () => {
+  const start = { lat: 30.27, lon: -97.74 };
+
+  it("puts the farthest stop near the middle and closes the loop", () => {
+    const pool = [
+      scored({ entityId: "near-e", lat: 30.272, lon: -97.732, category: "cafe", baseScore: 1.1, dwellMin: 20 }),
+      scored({ entityId: "far-n", lat: 30.286, lon: -97.74, category: "museum", baseScore: 1.2, dwellMin: 50 }),
+      scored({ entityId: "near-w", lat: 30.272, lon: -97.748, category: "park", baseScore: 1.1, dwellMin: 15 }),
+      scored({ entityId: "near-s", lat: 30.262, lon: -97.74, category: "shop", baseScore: 1, dwellMin: 20 }),
+    ];
+    const chosen = selectStops(pool, start, {
+      budgetMin: 240,
+      pace: "brisk",
+      mode: "allday",
+      departAt: new Date(Date.UTC(2026, 9, 24, 10, 0)),
+      weekday: saturday,
+      shape: "loop",
+    });
+    expect(chosen.length).toBeGreaterThanOrEqual(3);
+    let far = 0;
+    let farD = -1;
+    chosen.forEach((stop, index) => {
+      const distance = haversineM(start, stop);
+      if (distance > farD) {
+        farD = distance;
+        far = index;
+      }
+    });
+    const fraction = far / Math.max(chosen.length - 1, 1);
+    expect(fraction).toBeGreaterThanOrEqual(0.3);
+    expect(fraction).toBeLessThanOrEqual(0.7);
+    const total = plannedMinutes(start, chosen, "brisk", start);
+    const open = plannedMinutes(start, chosen, "brisk", null);
+    expect(total).toBeGreaterThan(open);
+    expect(total).toBeLessThanOrEqual(235.01);
+  });
+
+  it("does not schedule dinner at breakfast and keeps one meal per window", () => {
+    const cafe = scored({ entityId: "cafe", lat: 30.271, lon: -97.739, category: "cafe", baseScore: 1, dwellMin: 20 });
+    const dinner = scored({ entityId: "dinner", lat: 30.272, lon: -97.738, category: "restaurant", baseScore: 2, dwellMin: 60 });
+    const museum = scored({ entityId: "museum", lat: 30.273, lon: -97.737, category: "museum", baseScore: 1, dwellMin: 40 });
+    const morning = selectStops([cafe, dinner, museum], start, {
+      budgetMin: 180,
+      pace: "easy",
+      mode: "2h",
+      departAt: new Date(Date.UTC(2026, 9, 24, 8, 0)),
+      weekday: saturday,
+      shape: "one-way",
+    });
+    expect(morning[0]?.entityId).toBe("cafe");
+    expect(morning.some((stop) => stop.entityId === "dinner")).toBe(false);
+    expect(morning[0]?.orderNote).toMatch(/coffee/);
+
+    const mesa = scored({ entityId: "mesa", lat: 30.271, lon: -97.739, category: "restaurant", baseScore: 1.2, dwellMin: 60 });
+    const lana = scored({ entityId: "lana", lat: 30.273, lon: -97.736, category: "restaurant", baseScore: 1.5, dwellMin: 60 });
+    const bar = scored({ entityId: "bar", lat: 30.274, lon: -97.734, category: "bar", baseScore: 1, dwellMin: 35 });
+    const night = selectStops([mesa, lana, bar], start, {
+      budgetMin: 240,
+      pace: "easy",
+      mode: "tonight",
+      departAt: new Date(Date.UTC(2026, 9, 24, 18, 0)),
+      weekday: saturday,
+      shape: "loop",
+    });
+    const meals = night.filter((stop) => stop.category === "restaurant");
+    expect(meals).toHaveLength(1);
+    expect(meals[0]?.orderNote).toBe("dinner while kitchens are open");
+    expect(orderNoteFor("restaurant", [], 18 * 60 + 30)).toBe("dinner while kitchens are open");
+  });
+
+  it("rejects a stop that closes during the dwell", () => {
+    expect(
+      openThrough(
+        { saturday: [{ opens: "T17:00:00", closes: "T19:20:00" }] },
+        saturday,
+        new Date(Date.UTC(2026, 9, 24, 19, 0)),
+        60,
+      ),
+    ).toBe(false);
+    const closing = scored({
+      entityId: "early",
+      lat: 30.271,
+      lon: -97.739,
+      category: "restaurant",
+      dwellMin: 60,
+      hours: { saturday: [{ opens: "T17:00:00", closes: "T19:20:00" }] },
+      baseScore: 3,
+    });
+    const late = scored({
+      entityId: "late",
+      lat: 30.272,
+      lon: -97.738,
+      category: "bar",
+      dwellMin: 35,
+      hours: { saturday: [{ opens: "T17:00:00", closes: "T02:00:00" }] },
+      baseScore: 1,
+    });
+    const chosen = selectStops([closing, late], start, {
+      budgetMin: 180,
+      pace: "brisk",
+      mode: "2h",
+      departAt: new Date(Date.UTC(2026, 9, 24, 19, 0)),
+      weekday: saturday,
+      shape: "one-way",
+    });
+    expect(chosen.some((stop) => stop.entityId === "early")).toBe(false);
+    expect(chosen.some((stop) => stop.entityId === "late")).toBe(true);
+  });
+
+  it("includes the walk home on a loop and leaves a one-way open", () => {
+    const far = scored({ entityId: "far", lat: 30.29, lon: -97.74, category: "park", dwellMin: 15, baseScore: 2 });
+    const opts = {
+      budgetMin: 80,
+      pace: "easy" as const,
+      mode: "1h" as const,
+      departAt: new Date(Date.UTC(2026, 9, 24, 12, 0)),
+      weekday: saturday,
+    };
+    expect(selectStops([far], start, { ...opts, shape: "one-way" }).map((stop) => stop.entityId)).toContain("far");
+    expect(selectStops([far], start, { ...opts, shape: "loop" }).map((stop) => stop.entityId)).not.toContain("far");
+  });
+
+  it("keeps a nightcap last and close to the origin", () => {
+    const gelato = scored({
+      entityId: "gelato",
+      lat: 30.271,
+      lon: -97.7396,
+      category: "cafe",
+      tags: [{ id: "dessert", name: "Dessert" }],
+      baseScore: 1.4,
+      dwellMin: 20,
+    });
+    const room = scored({ entityId: "room", lat: 30.278, lon: -97.735, category: "bar", baseScore: 1.1, dwellMin: 35 });
+    const stage = scored({ entityId: "stage", lat: 30.276, lon: -97.732, category: "live_music", baseScore: 1.1, dwellMin: 45 });
+    const chosen = selectStops([gelato, room, stage], start, {
+      budgetMin: 240,
+      pace: "easy",
+      mode: "tonight",
+      departAt: new Date(Date.UTC(2026, 9, 24, 20, 30)),
+      weekday: saturday,
+      shape: "loop",
+    });
+    const index = chosen.findIndex((stop) => stop.entityId === "gelato");
+    expect(index).toBe(chosen.length - 1);
+    expect(chosen[index]?.orderNote).toMatch(/nightcap/);
+  });
+
+  it("heads back when the remaining time is the walk home", () => {
+    expect(shouldHeadBack(18, 14)).toBe(true);
+    expect(shouldHeadBack(40, 14)).toBe(false);
+    expect(shouldOfferRide(14, 19)).toBe(false);
+    expect(shouldOfferRide(14, 21)).toBe(true);
+    expect(shouldOfferRide(24, 18)).toBe(true);
+  });
+
+  it("recomputes a closed return on re-route", async () => {
+    const seeded = await buildWalk({
+      profile: demoProfile(),
+      start: DEMO_START,
+      budgetMin: 120,
+      pace: "easy",
+      mode: "2h",
+      shape: "loop",
+      demo: true,
+    });
+    const base: Walk = {
+      ...seeded,
+      poolKey: "test-pool",
+      mock: true,
+      isDemo: true,
+      startedAt: new Date(Date.now() - 100 * 60_000).toISOString(),
+      returnMin: 14,
+      shape: "loop",
+    };
+    const result = await rerouteWalk({
+      profile: demoProfile(),
+      walk: base,
+      fix: { lat: DEMO_START.lat + 0.01, lon: DEMO_START.lon },
+      reason: "late",
+      pool: seeded.pool,
+    });
+    const line = result.walk.versions.at(-1)?.route.geometry.coordinates ?? [];
+    const end = line.at(-1);
+    expect(result.walk.headingBack).toBe(true);
+    expect(result.toast).toMatch(/^Time to head back · \d+ min$/);
+    expect(end?.[0]).toBeCloseTo(DEMO_START.lon, 3);
+    expect(end?.[1]).toBeCloseTo(DEMO_START.lat, 3);
+  });
+});
+
+function walkMinutesHome(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+  return (haversineM(a, b) * 1.3) / ((4 * 1000) / 60);
+}
 
 function path(start: { lat: number; lon: number }, seq: { lat: number; lon: number }[]): number {
   let meters = 0;

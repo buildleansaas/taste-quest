@@ -32,6 +32,14 @@ export const planSchema = z.object({
   budgetMin: z.number().int().min(30).max(720),
   pace: z.enum(["easy", "brisk", "stepfree"]),
   mode: z.enum(["1h", "2h", "tonight", "allday"]),
+  shape: z.enum(["loop", "one-way", "end-near"]).optional(),
+  end: z
+    .object({
+      lat: z.number().gte(-90).lte(90),
+      lon: z.number().gte(-180).lte(180),
+      label: z.string().max(160).optional(),
+    })
+    .optional(),
   demo: z.boolean().optional(),
   widen: z.boolean().optional(),
   tz: z.string().max(80).optional(),
@@ -61,6 +69,18 @@ export const rerouteSchema = z.object({
     startedAt: z.string().optional(),
     endedAt: z.string().optional(),
     stepsNote: z.string().optional(),
+    remainingMin: z.number().optional(),
+    cursor: z.object({ lat: z.number(), lon: z.number() }).optional(),
+    shape: z.enum(["loop", "one-way", "end-near"]).optional(),
+    end: z
+      .object({
+        lat: z.number(),
+        lon: z.number(),
+        label: z.string().optional(),
+      })
+      .optional(),
+    returnMin: z.number().optional(),
+    headingBack: z.boolean().optional(),
   }),
   fix: z.object({ lat: z.number(), lon: z.number() }),
   reason: z.enum(["initial", "offroute", "skip", "veto", "late", "closed", "weather"]),

@@ -92,7 +92,7 @@ export const useQuest = create<QuestState>((setState, getState) => ({
       persist({
         ...getState(),
         profile,
-        budget: { minutes: 120, mode: "2h", pace: "easy" },
+        budget: { minutes: 120, mode: "2h", pace: "easy", shape: "loop" },
         start: DEMO_START,
         walk: null,
         needsPlan: true,

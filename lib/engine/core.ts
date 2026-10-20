@@ -4,7 +4,9 @@ import type {
   LatLon,
   Pace,
   PlaceHours,
+  PlaceTag,
   RerouteDiff,
+  ShapeMode,
   Stop,
   TasteTag,
 } from "@/lib/types";
@@ -110,6 +112,122 @@ export function closesWithin(
     const delta = closes >= now ? closes - now : closes + 1440 - now;
     return delta > 0 && delta < withinMin;
   });
+}
+
+const MEAL_GAP_MIN = 90;
+const RETURN_SLACK_MIN = 8;
+const RIDE_WALK_MIN = 20;
+const LATE_HOUR = 21;
+
+export type MealWindow = "breakfast" | "lunch" | "dinner";
+type DayPart = "cafe" | "day" | "meal" | "evening" | "nightcap" | "any";
+
+export function terminusFor(start: LatLon, shape?: ShapeMode, end?: LatLon | null): LatLon | null {
+  const mode = shape ?? "loop";
+  if (mode === "one-way") return null;
+  if (mode === "end-near") return end ?? start;
+  return start;
+}
+
+export function mealWindow(minuteOfDay: number): MealWindow | null {
+  if (minuteOfDay < 11 * 60) return "breakfast";
+  if (minuteOfDay < 15 * 60) return "lunch";
+  if (minuteOfDay >= 17.5 * 60 && minuteOfDay < 21 * 60) return "dinner";
+  return null;
+}
+
+function dayPart(category: string, tags: PlaceTag[]): DayPart {
+  const blob = `${category} ${tags.map((tag) => `${tag.name} ${tag.id}`).join(" ")}`.toLowerCase();
+  if (/dessert|nightcap|ice cream|gelato/.test(blob)) return "nightcap";
+  if (category === "cafe" || /breakfast|coffee|brunch|\bcafe\b|café/.test(blob)) return "cafe";
+  if (category === "bar" || category === "live_music" || /nightlife|live music|night club/.test(blob)) return "evening";
+  if (category === "restaurant" || /\bdinner\b|\brestaurant\b/.test(blob)) return "meal";
+  if (
+    category === "museum" ||
+    category === "park" ||
+    category === "shop" ||
+    category === "sight" ||
+    /museum|gallery|\bshop\b|bookstore|\bsight\b|\bpark\b/.test(blob)
+  ) {
+    return "day";
+  }
+  return "any";
+}
+
+export function timeOfDayFit(
+  category: string,
+  tags: PlaceTag[],
+  minuteOfDay: number,
+  opts?: { last?: boolean; nearOrigin?: boolean },
+): number {
+  const part = dayPart(category, tags);
+  if (part === "cafe") {
+    if (minuteOfDay < 11 * 60) return 1.35;
+    if (minuteOfDay < 14 * 60) return 0.85;
+    return 0.4;
+  }
+  if (part === "day") return minuteOfDay >= 9 * 60 && minuteOfDay <= 17 * 60 ? 1.25 : 0.5;
+  if (part === "meal") {
+    if (minuteOfDay >= 17.5 * 60 && minuteOfDay < 21 * 60) return 1.4;
+    if (minuteOfDay >= 11 * 60 && minuteOfDay < 15 * 60) return 1.1;
+    return 0.35;
+  }
+  if (part === "evening") {
+    if (minuteOfDay >= 20 * 60) return 1.4;
+    if (minuteOfDay >= 17 * 60) return 1.25;
+    return 0.45;
+  }
+  if (part === "nightcap") {
+    if (opts?.last && opts.nearOrigin && minuteOfDay >= 19 * 60) return 1.45;
+    if (minuteOfDay >= 20 * 60) return 0.7;
+    return 0.35;
+  }
+  return 1;
+}
+
+export function orderNoteFor(
+  category: string,
+  tags: PlaceTag[],
+  minuteOfDay: number,
+  opts?: { last?: boolean; nearOrigin?: boolean },
+): string | undefined {
+  const part = dayPart(category, tags);
+  if (part === "cafe" && minuteOfDay < 11 * 60) return "coffee while the morning is quiet";
+  if (part === "meal" && minuteOfDay >= 17.5 * 60 && minuteOfDay < 21 * 60) return "dinner while kitchens are open";
+  if (part === "meal" && minuteOfDay >= 11 * 60 && minuteOfDay < 15 * 60) return "lunch while kitchens are open";
+  if (part === "day" && minuteOfDay >= 9 * 60 && minuteOfDay <= 17 * 60) return "a daytime stop while it's open";
+  if (part === "evening" && minuteOfDay >= 17 * 60) return "once the room is open for the night";
+  if (part === "nightcap" && opts?.last && opts.nearOrigin) return "a nightcap close to the start";
+  return undefined;
+}
+
+export function openThrough(
+  hours: PlaceHours | undefined,
+  weekday: string,
+  eta: Date,
+  dwellMin: number,
+): boolean {
+  if (!isOpenAt(hours, weekday, eta)) return false;
+  if (!hours || dwellMin <= 1) return true;
+  const last = new Date(eta.getTime() + (dwellMin - 1) * 60_000);
+  return isOpenAt(hours, weekday, last);
+}
+
+export function shouldHeadBack(remainingMin: number, returnMin: number): boolean {
+  if (returnMin <= 0) return false;
+  return remainingMin <= returnMin + RETURN_SLACK_MIN;
+}
+
+export function shouldOfferRide(returnMin: number, hour: number): boolean {
+  return returnMin > RIDE_WALK_MIN || hour >= LATE_HOUR;
+}
+
+function isFullMeal(cand: { category: string }): boolean {
+  return cand.category === "restaurant";
+}
+
+function minuteOf(date: Date): number {
+  return date.getUTCHours() * 60 + date.getUTCMinutes();
 }
 
 function normAddress(address?: string): string {
@@ -223,14 +341,24 @@ function pathMeters(start: LatLon, seq: LatLon[]): number {
   return meters;
 }
 
-function routeMinutes(start: LatLon, seq: Scored[], pace: Pace): number {
+export function plannedMinutes(
+  start: LatLon,
+  seq: { lat: number; lon: number; dwellMin: number }[],
+  pace: Pace,
+  terminus: LatLon | null,
+): number {
   let minutes = 0;
   let prev: LatLon = start;
   for (const stop of seq) {
     minutes += walkMinutes(prev, stop, pace) + stop.dwellMin;
     prev = stop;
   }
+  if (terminus && seq.length) minutes += walkMinutes(prev, terminus, pace);
   return minutes;
+}
+
+function routeMinutes(start: LatLon, seq: Scored[], pace: Pace, terminus: LatLon | null): number {
+  return plannedMinutes(start, seq, pace, terminus);
 }
 
 function marginalWalk(
@@ -239,12 +367,101 @@ function marginalWalk(
   index: number,
   cand: Scored,
   pace: Pace,
+  terminus: LatLon | null,
 ): number {
   const prev = index === 0 ? start : seq[index - 1];
-  const next = seq[index];
+  const next = seq[index] ?? terminus ?? undefined;
   const added = walkMinutes(prev, cand, pace) + (next ? walkMinutes(cand, next, pace) : 0);
   const removed = next ? walkMinutes(prev, next, pace) : 0;
   return added - removed;
+}
+
+function arrivalMinutes(start: LatLon, seq: Scored[], departAt: Date, pace: Pace): number[] {
+  const minutes: number[] = [];
+  let elapsed = 0;
+  let prev: LatLon = start;
+  for (const stop of seq) {
+    elapsed += walkMinutes(prev, stop, pace);
+    minutes.push(minuteOf(new Date(departAt.getTime() + elapsed * 60_000)));
+    elapsed += stop.dwellMin;
+    prev = stop;
+  }
+  return minutes;
+}
+
+function mealsOk(
+  seq: Scored[],
+  start: LatLon,
+  opts: { departAt: Date; pace: Pace },
+): boolean {
+  const arrivals = arrivalMinutes(start, seq, opts.departAt, opts.pace);
+  const meals: number[] = [];
+  const windows = new Map<MealWindow, number>();
+  seq.forEach((stop, index) => {
+    if (!isFullMeal(stop)) return;
+    const minute = arrivals[index] ?? 0;
+    meals.push(minute);
+    const window = mealWindow(minute);
+    if (!window) return;
+    windows.set(window, (windows.get(window) ?? 0) + 1);
+  });
+  for (const count of windows.values()) {
+    if (count > 1) return false;
+  }
+  for (let i = 0; i < meals.length; i += 1) {
+    for (let j = i + 1; j < meals.length; j += 1) {
+      const gap = Math.abs(meals[i] - meals[j]);
+      if (Math.min(gap, 1440 - gap) < MEAL_GAP_MIN) return false;
+    }
+  }
+  return true;
+}
+
+function bearingRad(a: LatLon, b: LatLon): number {
+  const φ1 = (a.lat * Math.PI) / 180;
+  const φ2 = (b.lat * Math.PI) / 180;
+  const Δλ = ((b.lon - a.lon) * Math.PI) / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return Math.atan2(y, x);
+}
+
+function angleDelta(a: number, b: number): number {
+  let delta = (a - b) % (2 * Math.PI);
+  if (delta > Math.PI) delta -= 2 * Math.PI;
+  if (delta < -Math.PI) delta += 2 * Math.PI;
+  return delta;
+}
+
+/** A return that walks back up the same street loses to a near-equal alternative. */
+function retraceFactor(start: LatLon, seq: LatLon[], terminus: LatLon | null): number {
+  const points = [start, ...seq, ...(terminus ? [terminus] : [])];
+  const legs: { a: LatLon; b: LatLon }[] = [];
+  for (let i = 1; i < points.length; i += 1) {
+    if (haversineM(points[i - 1], points[i]) < 25) continue;
+    legs.push({ a: points[i - 1], b: points[i] });
+  }
+  for (let i = 0; i < legs.length; i += 1) {
+    for (let j = i + 1; j < legs.length; j += 1) {
+      const reverse = Math.abs(angleDelta(bearingRad(legs[i].a, legs[i].b) + Math.PI, bearingRad(legs[j].a, legs[j].b)));
+      if (reverse > (30 * Math.PI) / 180) continue;
+      const midA = { lat: (legs[i].a.lat + legs[i].b.lat) / 2, lon: (legs[i].a.lon + legs[i].b.lon) / 2 };
+      const midB = { lat: (legs[j].a.lat + legs[j].b.lat) / 2, lon: (legs[j].a.lon + legs[j].b.lon) / 2 };
+      if (haversineM(midA, midB) <= 80) return 0.68;
+    }
+  }
+  return 1;
+}
+
+function averageFit(seq: Scored[], start: LatLon, departAt: Date, pace: Pace, terminus: LatLon | null): number {
+  if (!seq.length) return 1;
+  const arrivals = arrivalMinutes(start, seq, departAt, pace);
+  const total = seq.reduce((sum, stop, index) => {
+    const last = index === seq.length - 1;
+    const near = terminus ? haversineM(stop, terminus) < 450 : false;
+    return sum + timeOfDayFit(stop.category, stop.tags, arrivals[index] ?? 0, { last, nearOrigin: near });
+  }, 0);
+  return total / seq.length;
 }
 
 function diversity(seq: Scored[], cand: Scored): number {
@@ -261,15 +478,23 @@ function scoreSum(seq: Scored[]): number {
   return total;
 }
 
-export type ChosenStop = Scored & { ratio: number };
+export type ChosenStop = Scored & { ratio: number; orderNote?: string };
 
-export function selectStops(
-  pool: Scored[],
-  start: LatLon,
-  opts: { budgetMin: number; pace: Pace; mode: BudgetMode; departAt: Date; weekday: string },
-): ChosenStop[] {
+export type SelectOpts = {
+  budgetMin: number;
+  pace: Pace;
+  mode: BudgetMode;
+  departAt: Date;
+  weekday: string;
+  shape?: ShapeMode;
+  end?: LatLon | null;
+};
+
+export function selectStops(pool: Scored[], start: LatLon, opts: SelectOpts): ChosenStop[] {
   const limit = opts.budgetMin - 5;
   const cap = stopCap(opts.mode);
+  const shape = opts.shape ?? "loop";
+  const terminus = terminusFor(start, shape, opts.end);
   const ranked = [...pool].sort((a, b) => b.baseScore - a.baseScore).slice(0, 40);
   let seq: Scored[] = [];
 
@@ -279,12 +504,18 @@ export function selectStops(
       if (seq.some((item) => item.entityId === cand.entityId)) continue;
       for (let index = 0; index <= seq.length; index += 1) {
         const next = [...seq.slice(0, index), cand, ...seq.slice(index)];
-        if (!openAlong(next, start, opts)) continue;
-        const cost = routeMinutes(start, next, opts.pace);
-        if (cost > limit) continue;
-        const deltaWalk = marginalWalk(start, seq, index, cand, opts.pace);
+        if (!fitsSequence(next, start, opts, terminus, limit)) continue;
+        const arrivals = arrivalMinutes(start, next, opts.departAt, opts.pace);
+        const minute = arrivals[index] ?? 0;
+        const last = index === next.length - 1;
+        const near = terminus ? haversineM(cand, terminus) < 450 : false;
+        const part = dayPart(cand.category, cand.tags);
+        const fit = timeOfDayFit(cand.category, cand.tags, minute, { last, nearOrigin: near });
+        if (part === "meal" && fit < 0.8) continue;
+        if (part === "nightcap" && !(last && near)) continue;
+        const deltaWalk = marginalWalk(start, seq, index, cand, opts.pace, terminus);
         const ratio =
-          (cand.baseScore * diversity(seq, cand)) /
+          (cand.baseScore * diversity(seq, cand) * fit * retraceFactor(start, next, terminus)) /
           Math.max(deltaWalk + cand.dwellMin, 0.5);
         if (!best || ratio > best.ratio) best = { cand, index, ratio };
       }
@@ -293,15 +524,48 @@ export function selectStops(
     seq = [...seq.slice(0, best.index), best.cand, ...seq.slice(best.index)];
   }
 
-  seq = twoOpt(start, seq);
-  seq = swapPass(ranked, start, seq, opts.pace, limit, opts);
+  seq = terminus ? twoOptClosed(start, seq, opts, terminus, limit) : twoOpt(start, seq);
+  seq = swapPass(ranked, start, seq, opts.pace, limit, opts, terminus);
+  if (terminus) {
+    seq = placeNightcaps(start, seq, opts, terminus, limit);
+    seq = centerFarthest(start, seq, opts, terminus, limit);
+  }
 
-  return seq.map((cand) => {
-    const walk = walkMinutes(start, cand, opts.pace);
+  const arrivals = arrivalMinutes(start, seq, opts.departAt, opts.pace);
+  return seq.map((cand, index) => {
+    const last = index === seq.length - 1;
+    const near = terminus ? haversineM(cand, terminus) < 450 : false;
     return {
       ...cand,
-      ratio: cand.baseScore / Math.max(walk + cand.dwellMin, 0.5),
+      ratio: cand.baseScore / Math.max(walkMinutes(start, cand, opts.pace) + cand.dwellMin, 0.5),
+      orderNote: orderNoteFor(cand.category, cand.tags, arrivals[index] ?? 0, { last, nearOrigin: near }),
     };
+  });
+}
+
+function fitsSequence(
+  seq: Scored[],
+  start: LatLon,
+  opts: SelectOpts,
+  terminus: LatLon | null,
+  limit: number,
+): boolean {
+  if (!openAlong(seq, start, opts)) return false;
+  if (!mealsOk(seq, start, opts)) return false;
+  if (!dayPartOk(seq, start, opts, terminus)) return false;
+  return routeMinutes(start, seq, opts.pace, terminus) <= limit;
+}
+
+function dayPartOk(seq: Scored[], start: LatLon, opts: SelectOpts, terminus: LatLon | null): boolean {
+  const arrivals = arrivalMinutes(start, seq, opts.departAt, opts.pace);
+  return seq.every((stop, index) => {
+    const part = dayPart(stop.category, stop.tags);
+    const last = index === seq.length - 1;
+    const near = terminus ? haversineM(stop, terminus) < 450 : false;
+    const fit = timeOfDayFit(stop.category, stop.tags, arrivals[index] ?? 0, { last, nearOrigin: near });
+    if (part === "meal" && fit < 0.8) return false;
+    if (part === "nightcap" && !(last && near)) return false;
+    return true;
   });
 }
 
@@ -315,11 +579,90 @@ function openAlong(
   for (const stop of seq) {
     elapsed += walkMinutes(prev, stop, opts.pace);
     const eta = new Date(opts.departAt.getTime() + elapsed * 60_000);
-    if (!isOpenAt(stop.hours, opts.weekday, eta)) return false;
+    if (!openThrough(stop.hours, opts.weekday, eta, stop.dwellMin)) return false;
     elapsed += stop.dwellMin;
     prev = stop;
   }
   return true;
+}
+
+function twoOptClosed(
+  start: LatLon,
+  seq: Scored[],
+  opts: SelectOpts,
+  terminus: LatLon,
+  limit: number,
+): Scored[] {
+  let route = seq;
+  let guard = 0;
+  let improved = true;
+  while (improved && guard < 8) {
+    improved = false;
+    guard += 1;
+    for (let i = 0; i < route.length - 1; i += 1) {
+      for (let k = i + 1; k < route.length; k += 1) {
+        const next = [...route.slice(0, i), ...route.slice(i, k + 1).reverse(), ...route.slice(k + 1)];
+        const before = pathMeters(start, [...route, terminus]);
+        const after = pathMeters(start, [...next, terminus]);
+        if (after + 1e-6 >= before) continue;
+        if (!fitsSequence(next, start, opts, terminus, limit)) continue;
+        if (averageFit(next, start, opts.departAt, opts.pace, terminus) + 0.2 < averageFit(route, start, opts.departAt, opts.pace, terminus)) {
+          continue;
+        }
+        route = next;
+        improved = true;
+      }
+    }
+  }
+  return route;
+}
+
+function placeNightcaps(
+  start: LatLon,
+  seq: Scored[],
+  opts: SelectOpts,
+  terminus: LatLon,
+  limit: number,
+): Scored[] {
+  const caps = seq.filter((stop) => dayPart(stop.category, stop.tags) === "nightcap" && haversineM(stop, terminus) < 450);
+  if (!caps.length) return seq;
+  let route = seq.filter((stop) => !caps.some((cap) => cap.entityId === stop.entityId));
+  for (const cap of caps) {
+    const next = [...route, cap];
+    if (!fitsSequence(next, start, opts, terminus, limit)) continue;
+    route = next;
+  }
+  return route.length ? route : seq;
+}
+
+function centerFarthest(
+  start: LatLon,
+  seq: Scored[],
+  opts: SelectOpts,
+  terminus: LatLon,
+  limit: number,
+): Scored[] {
+  if (seq.length < 3) return seq;
+  let far = 0;
+  let farD = -1;
+  seq.forEach((stop, index) => {
+    const distance = haversineM(start, stop);
+    if (distance > farD) {
+      farD = distance;
+      far = index;
+    }
+  });
+  const fraction = far / Math.max(seq.length - 1, 1);
+  if (fraction >= 0.35 && fraction <= 0.65) return seq;
+  const item = seq[far];
+  const rest = seq.filter((_, index) => index !== far);
+  const insertAt = Math.min(rest.length, Math.round(rest.length / 2));
+  const next = [...rest.slice(0, insertAt), item, ...rest.slice(insertAt)];
+  const before = routeMinutes(start, seq, opts.pace, terminus);
+  const after = routeMinutes(start, next, opts.pace, terminus);
+  if (after > before * 1.15 || after > limit) return seq;
+  if (!fitsSequence(next, start, opts, terminus, limit)) return seq;
+  return next;
 }
 
 export function twoOpt(start: LatLon, seq: Scored[]): Scored[] {
@@ -352,17 +695,19 @@ function swapPass(
   seq: Scored[],
   pace: Pace,
   limit: number,
-  opts: { departAt: Date; weekday: string; pace: Pace },
+  opts: SelectOpts,
+  terminus: LatLon | null,
 ): Scored[] {
+  const rank = (candidate: Scored[]) =>
+    scoreSum(candidate) * averageFit(candidate, start, opts.departAt, pace, terminus);
   let route = seq;
-  let bestScore = scoreSum(route);
+  let bestScore = rank(route);
   for (let index = 0; index < route.length; index += 1) {
     for (const cand of pool) {
       if (route.some((item) => item.entityId === cand.entityId)) continue;
       const next = [...route.slice(0, index), cand, ...route.slice(index + 1)];
-      if (!openAlong(next, start, opts)) continue;
-      if (routeMinutes(start, next, pace) > limit) continue;
-      const score = scoreSum(next);
+      if (!fitsSequence(next, start, opts, terminus, limit)) continue;
+      const score = rank(next);
       if (score > bestScore + 1e-9) {
         route = next;
         bestScore = score;

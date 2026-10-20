@@ -49,6 +49,8 @@ export async function POST(req: Request): Promise<Response> {
           budgetMin: input.budgetMin,
           pace: input.pace,
           mode: input.mode,
+          shape: input.shape ?? "loop",
+          end: input.end,
           demo: input.demo,
           widen: input.widen,
           tz: input.tz,

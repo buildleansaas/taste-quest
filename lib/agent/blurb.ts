@@ -11,6 +11,7 @@ export function templateBlurb(input: {
   place: string;
   evidence: Evidence;
   shortDescription?: string;
+  orderNote?: string;
 }): string {
   const top = [...input.evidence.entityShares].sort((a, b) => b.share - a.share)[0];
   const tag = input.evidence.tagOverlap[0]?.name;
@@ -18,7 +19,10 @@ export function templateBlurb(input: {
   const and = tag ? ` and ${tag.toLowerCase()}` : "";
   const clause = input.shortDescription?.split(". ")[0];
   const lead = `People who love ${who}${and} tend to love ${input.place}.`;
-  return clause ? `${lead} ${clause.replace(/\.$/, "")}.` : lead;
+  const body = clause ? `${lead} ${clause.replace(/\.$/, "")}.` : lead;
+  if (!input.orderNote) return body;
+  const note = `${input.orderNote.charAt(0).toUpperCase()}${input.orderNote.slice(1)}.`;
+  return `${body} ${note}`;
 }
 
 export function guardBlurb(

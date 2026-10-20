@@ -280,7 +280,10 @@ function paint(
     const el = document.createElement("div");
     el.className = `pin ${pin.cls ?? ""}`;
     el.style.setProperty("--c", pin.color || "#8c8cc8");
-    el.innerHTML = `<div class="bubble"><i></i>${pin.n}</div><div class="stem"></div>${pin.label ? `<div class="label">${pin.label}</div>` : ""}`;
+    const mark = pin.cls?.split(" ").includes("home")
+      ? `<svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 9.2 10 3.8l6.5 5.4V16.5H12v-4.2H8v4.2H3.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`
+      : `${pin.n}`;
+    el.innerHTML = `<div class="bubble"><i></i>${mark}</div><div class="stem"></div>${pin.label ? `<div class="label">${pin.label}</div>` : ""}`;
     markers.current.push(
       new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, pin.label ? 22 : 0] }).setLngLat(pin.ll).addTo(map),
     );

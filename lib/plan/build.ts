@@ -8,6 +8,9 @@ import {
   prepareCandidates,
   radiusM,
   selectStops,
+  shouldHeadBack,
+  terminusFor,
+  walkMinutes,
   withStability,
   type ChosenStop,
 } from "@/lib/engine/core";
@@ -20,8 +23,10 @@ import { demoClock, readContext } from "@/lib/weather/open-meteo";
 import type {
   BudgetMode,
   Candidate,
+  LatLon,
   Pace,
   RerouteReason,
+  ShapeMode,
   StartPoint,
   Stop,
   TasteProfile,
@@ -36,6 +41,8 @@ export type PlanInput = {
   budgetMin: number;
   pace: Pace;
   mode: BudgetMode;
+  shape?: ShapeMode;
+  end?: LatLon & { label?: string };
   demo?: boolean;
   widen?: boolean;
   tz?: string;
@@ -169,6 +176,7 @@ function toStops(
       place: stop.name,
       evidence,
       shortDescription: stop.shortDescription,
+      orderNote: stop.orderNote,
     });
     const closedNow = stop.hours ? !isOpenAt(stop.hours, weekday, eta) : false;
     elapsed += stop.dwellMin;
@@ -195,6 +203,7 @@ function toStops(
       closingSoon: closesWithin(stop.hours, weekday, eta, 45),
       closedNow,
       sample: stop.sample,
+      orderNote: stop.orderNote,
     };
   });
 }
@@ -227,23 +236,28 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
     rainy: Boolean(context.weather?.isRainy),
     evening: isEvening(input),
   });
+  const shape = input.shape ?? "loop";
   let chosen = selectStops(prepared, input.start, {
     budgetMin: input.budgetMin,
     pace: input.pace,
     mode: input.mode,
     departAt: departAt(input),
     weekday: context.weekday,
+    shape,
+    end: input.end,
   });
   input.onStep?.(osrmLine());
-  let routed = await routeThrough(input.start, chosen, input.pace);
-  const total = routed.walkMin + chosen.reduce((sum, stop) => sum + stop.dwellMin, 0);
+  let routed = await routeThrough(input.start, chosen, input.pace, shape, input.end);
+  let total = routed.walkMin + chosen.reduce((sum, stop) => sum + stop.dwellMin, 0);
   if (chosen.length > 1 && total > input.budgetMin * 1.05) {
     const drop = lowestRatioIndex(chosen);
     chosen = chosen.filter((_, index) => index !== drop);
-    routed = await routeThrough(input.start, chosen, input.pace);
+    routed = await routeThrough(input.start, chosen, input.pace, shape, input.end);
+    total = routed.walkMin + chosen.reduce((sum, stop) => sum + stop.dwellMin, 0);
   }
   const stops = toStops(chosen, routed, input, context.weekday);
   const version = versionFrom(1, "initial", routed, stops);
+  const returnMin = closingMinutes(routed, shape, chosen.length);
   return {
     id: crypto.randomUUID(),
     status: "active",
@@ -259,6 +273,11 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
     versions: [version],
     startedAt: new Date().toISOString(),
     stepsNote: input.pace === "stepfree" ? "Step-free is best-effort and may include steps." : undefined,
+    shape,
+    end: input.end,
+    returnMin,
+    headingBack: false,
+    remainingMin: Math.round(Math.min(input.budgetMin, total)),
   };
 }
 
@@ -268,8 +287,23 @@ function osrmLine(): string {
     : "Drawing an approximate path (no router configured)…";
 }
 
-async function routeThrough(start: StartPoint, chosen: ChosenStop[], pace: Pace): Promise<Routed> {
-  return routeFoot([start, ...chosen.map((stop) => ({ lat: stop.lat, lon: stop.lon }))], pace);
+async function routeThrough(
+  start: LatLon,
+  chosen: ChosenStop[],
+  pace: Pace,
+  shape: ShapeMode,
+  end?: LatLon | null,
+): Promise<Routed> {
+  const points: LatLon[] = [start, ...chosen.map((stop) => ({ lat: stop.lat, lon: stop.lon }))];
+  const term = terminusFor(start, shape, end);
+  if (term && chosen.length) points.push({ lat: term.lat, lon: term.lon });
+  return routeFoot(points.length >= 2 ? points : [start, start], pace);
+}
+
+function closingMinutes(routed: Routed, shape: ShapeMode, stopCount: number): number {
+  if (shape === "one-way" || stopCount === 0) return 0;
+  const leg = routed.legs[stopCount] ?? (routed.legs.length === stopCount + 1 ? routed.legs.at(-1) : undefined);
+  return Math.round(leg?.minutes ?? 0);
 }
 
 function versionFrom(version: number, reason: RerouteReason, routed: Routed, stops: Stop[]): WalkVersion {
@@ -346,11 +380,17 @@ export async function rerouteWalk(input: {
   const elapsed = input.walk.startedAt
     ? Math.max(0, (Date.now() - new Date(input.walk.startedAt).getTime()) / 60_000)
     : 0;
-  const remaining = Math.max(30, input.walk.budgetMin - elapsed);
+  const remainingRaw = Math.max(0, input.walk.budgetMin - elapsed);
+  const shape = input.walk.shape ?? "loop";
+  const terminus = terminusFor(input.walk.start, shape, input.walk.end);
+  const returnEstimate = terminus ? walkMinutes(input.fix, terminus, input.walk.pace) : 0;
+  let headingBack = Boolean(terminus && shouldHeadBack(remainingRaw, returnEstimate));
+  const remaining = headingBack ? remainingRaw : Math.max(30, remainingRaw);
   const contextWeekday = input.walk.isDemo ? "saturday" : (await readContext(input.fix.lat, input.fix.lon, input.tz)).weekday;
+  const depart = input.walk.isDemo ? new Date(Date.UTC(2026, 9, 24, 19, 0)) : wallClock(new Date(), input.tz || "UTC");
   const prepared = withStability(
     prepareCandidates(pool, {
-      departAt: input.walk.isDemo ? new Date(Date.UTC(2026, 9, 24, 19, 0)) : wallClock(new Date(), input.tz || "UTC"),
+      departAt: depart,
       weekday: contextWeekday,
       pace: input.walk.pace,
       dropIds,
@@ -360,23 +400,35 @@ export async function rerouteWalk(input: {
     }),
     previous.filter((stop) => stop.state === "todo" || stop.state === "next").map((stop) => stop.entityId),
   );
-  const chosen = selectStops(prepared, input.fix, {
-    budgetMin: remaining,
-    pace: input.walk.pace,
-    mode: input.walk.mode,
-    departAt: input.walk.isDemo ? new Date(Date.UTC(2026, 9, 24, 19, 0)) : wallClock(new Date(), input.tz || "UTC"),
-    weekday: contextWeekday,
-  });
-  const routed = await routeFoot(
-    [{ lat: input.fix.lat, lon: input.fix.lon }, ...chosen.map((stop) => ({ lat: stop.lat, lon: stop.lon }))],
-    input.walk.pace,
-  );
+  const chosen = headingBack
+    ? []
+    : selectStops(prepared, input.fix, {
+        budgetMin: remaining,
+        pace: input.walk.pace,
+        mode: input.walk.mode,
+        departAt: depart,
+        weekday: contextWeekday,
+        shape,
+        end: input.walk.end,
+      });
+  if (!headingBack && terminus && chosen.length === 0) headingBack = true;
+  const points: LatLon[] = [
+    { lat: input.fix.lat, lon: input.fix.lon },
+    ...chosen.map((stop) => ({ lat: stop.lat, lon: stop.lon })),
+    ...(terminus ? [{ lat: terminus.lat, lon: terminus.lon }] : []),
+  ];
+  const routed = await routeFoot(points.length >= 2 ? points : [input.fix, input.fix], input.walk.pace);
+  const returnMin = headingBack
+    ? Math.max(1, Math.round(routed.legs.at(-1)?.minutes ?? returnEstimate))
+    : closingMinutes(routed, shape, chosen.length);
   const fresh = toStops(chosen, routed, {
     profile: input.profile,
     start: input.walk.start,
     budgetMin: remaining,
     pace: input.walk.pace,
     mode: input.walk.mode,
+    shape,
+    end: input.walk.end,
     demo: input.walk.isDemo,
   }, contextWeekday);
   const skippedNow = previous
@@ -386,16 +438,28 @@ export async function rerouteWalk(input: {
   const versionNumber = input.walk.currentVersion + 1;
   const version = versionFrom(versionNumber, input.reason, routed, stops);
   const diff = diffRoutes(previous, stops, version.totals.walkMin - (current?.totals.walkMin ?? 0));
+  const plannedLeft = routed.walkMin + fresh.reduce((sum, stop) => sum + stop.dwellMin, 0);
   const walk: Walk = {
     ...input.walk,
     currentVersion: versionNumber,
     versions: [...input.walk.versions, version],
     pool,
+    shape,
+    returnMin,
+    headingBack,
+    remainingMin: headingBack ? returnMin : Math.round(Math.min(remainingRaw || input.walk.budgetMin, plannedLeft)),
   };
-  return { walk, diff, toast: toastFrom(diff, stops, remaining) };
+  return { walk, diff, toast: toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin) };
 }
 
-function toastFrom(diff: ReturnType<typeof diffRoutes>, stops: Stop[], remaining: number): string {
+function toastFrom(
+  diff: ReturnType<typeof diffRoutes>,
+  stops: Stop[],
+  remaining: number,
+  headingBack = false,
+  returnMin = 0,
+): string {
+  if (headingBack) return `Time to head back · ${Math.max(1, Math.round(returnMin))} min`;
   const added = stops.find((stop) => diff.added.includes(stop.entityId));
   const removed = diff.removed[0];
   const hours = Math.floor(remaining / 60);
@@ -406,6 +470,7 @@ function toastFrom(diff: ReturnType<typeof diffRoutes>, stops: Stop[], remaining
   }
   if (added) return `Added ${added.name}, a ${added.affinity.toFixed(2)} match. Still ${left}.`;
   if (!stops.some((stop) => stop.state === "next" || stop.state === "todo")) {
+    if (returnMin > 0) return `Time to head back · ${Math.max(1, Math.round(returnMin))} min`;
     return "That was your last stop. Head back?";
   }
   return `Route updated. Still ${left}.`;
@@ -418,16 +483,26 @@ export async function maybeLlmBlurb(walk: Walk, profile: TasteProfile): Promise<
   const stops = await Promise.all(
     version.stops.map(async (stop) => ({
       ...stop,
-      blurb: await explainBlurb({
-        place: stop.name,
-        evidence: stop.evidence,
-        profile,
-        entityId: stop.entityId,
-      }),
+      blurb: withOrder(
+        await explainBlurb({
+          place: stop.name,
+          evidence: stop.evidence,
+          profile,
+          entityId: stop.entityId,
+        }),
+        stop.orderNote,
+      ),
     })),
   );
   const versions = walk.versions.slice(0, -1).concat({ ...version, stops });
   return { ...walk, versions };
+}
+
+function withOrder(blurb: string, note?: string): string {
+  if (!note) return blurb;
+  const sentence = `${note.charAt(0).toUpperCase()}${note.slice(1)}.`;
+  if (blurb.includes(sentence)) return blurb;
+  return `${blurb} ${sentence}`;
 }
 
 export function currentRoute(walk: Walk): WalkRoute | undefined {

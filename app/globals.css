@@ -320,6 +320,40 @@ html[data-frame="1"] .home-ind { display: block; }
 .pin.skipped .bubble { background: var(--color-cream); color: var(--color-slate-dim); }
 .pin.skipped .bubble i { border-color: var(--color-slate-pale); border-style: dashed; }
 .pin.new .bubble i { border-color: var(--color-flare); }
+.pin.home .bubble { width: 36px; height: 36px; background: var(--color-ink); color: #fff; }
+.pin.home .bubble i { border-color: var(--color-accent); inset: -4px; border-width: 3px; opacity: 0.9; }
+.pin.home .bubble svg { display: block; }
+.shape-toggle {
+  display: inline-flex;
+  margin-top: 16px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--color-cream);
+}
+.shape-toggle button {
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-slate);
+}
+.shape-toggle button[aria-pressed="true"] {
+  background: #fff;
+  color: var(--color-ink);
+  box-shadow: var(--shadow-control-sm);
+}
+.ride-row { display: flex; gap: 8px; margin: 2px 0 8px 38px; }
+.ride-row a {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-accent-deep);
+  text-decoration: none;
+  background: #8c8cc81f;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
 .user { position: relative; width: 22px; height: 22px; }
 .user .core {
   position: absolute;

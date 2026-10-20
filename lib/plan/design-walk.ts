@@ -5,6 +5,7 @@ import {
   REROUTE_GHOST,
   REROUTE_ROUTE,
   REROUTE_USER,
+  RETURN_TO_START,
 } from "@/lib/map/austin-geometry";
 import { SAMPLE_PLACES } from "@/lib/qloo/sample";
 import type { BudgetMode, Candidate, Pace, StartPoint, Stop, Walk, WalkRoute } from "@/lib/types";
@@ -55,6 +56,15 @@ function place(id: string): Candidate {
 
 function line(coords: [number, number][]): WalkRoute["geometry"] {
   return { type: "LineString", coordinates: coords };
+}
+
+function closed(coords: [number, number][]): [number, number][] {
+  const last = coords[coords.length - 1];
+  const same =
+    last &&
+    Math.abs(last[0] - RETURN_TO_START[0][0]) < 1e-6 &&
+    Math.abs(last[1] - RETURN_TO_START[0][1]) < 1e-6;
+  return [...coords, ...(same ? RETURN_TO_START.slice(1) : RETURN_TO_START)];
 }
 
 function stopFrom(id: string, seq: number, state: Stop["state"], walkMin: number, extra: Partial<Stop> = {}): Stop {
@@ -112,22 +122,26 @@ export function designWalk(input: DesignInput): Walk {
     currentVersion: 1,
     remainingMin: 112,
     cursor: { lon: EXPLORE_USER[0], lat: EXPLORE_USER[1] },
+    shape: "loop",
+    returnMin: 14,
+    headingBack: false,
     versions: [
       {
         version: 1,
         reason: "initial",
         createdAt: new Date().toISOString(),
         route: {
-          geometry: line(EXPLORE_ROUTE),
+          geometry: line(closed(EXPLORE_ROUTE)),
           legs: [
             { minutes: 7, meters: 520 },
             { minutes: 4, meters: 280 },
             { minutes: 5, meters: 340 },
             { minutes: 6, meters: 400 },
+            { minutes: 14, meters: 900 },
           ],
           approximate: false,
         },
-        totals: { walkMin: 22, dwellMin: stops.reduce((sum, stop) => sum + stop.dwellMin, 0), km: 1.5 },
+        totals: { walkMin: 36, dwellMin: stops.reduce((sum, stop) => sum + stop.dwellMin, 0), km: 2.4 },
         stops,
       },
     ],
@@ -157,6 +171,9 @@ export function designReroute(walk: Walk): { walk: Walk; toast: string } {
     currentVersion: walk.currentVersion + 1,
     remainingMin: 91,
     cursor: { lon: REROUTE_USER[0], lat: REROUTE_USER[1] },
+    shape: "loop",
+    returnMin: 14,
+    headingBack: false,
     versions: [
       ...walk.versions,
       {
@@ -164,16 +181,17 @@ export function designReroute(walk: Walk): { walk: Walk; toast: string } {
         reason: "skip",
         createdAt: new Date().toISOString(),
         route: {
-          geometry: line(REROUTE_ROUTE),
-          ghost: line(REROUTE_GHOST),
+          geometry: line(closed(REROUTE_ROUTE)),
+          ghost: line(closed(REROUTE_GHOST)),
           legs: [
             { minutes: 4, meters: 220 },
             { minutes: 4, meters: 260 },
             { minutes: 5, meters: 340 },
+            { minutes: 14, meters: 900 },
           ],
           approximate: false,
         },
-        totals: { walkMin: 13, dwellMin: 70, km: 0.9 },
+        totals: { walkMin: 27, dwellMin: 70, km: 1.8 },
         stops,
       },
     ],

@@ -89,7 +89,7 @@ There's **no database, no Redis, no auth provider and no routing SaaS.**
 
 Shared client state is a Zustand store, persisted to `localStorage` for walk resilience:
 - `profile {entities[], tags[], updatedAt}`
-- `budget {minutes, mode: '1h'|'2h'|'tonight'|'allday', pace}`
+- `budget {minutes, mode: '1h'|'2h'|'tonight'|'allday', pace, shape: 'loop'|'one-way'|'end-near'}`
 - `start {lat, lon, label, source: 'gps'|'pin'|'demo'}`
 - `walk {id, stops[], route, cursor, skipped[], visited[], remainingMin}`
 - `geo {status, fix, accuracy, heading}`
@@ -146,6 +146,7 @@ Shared client state is a Zustand store, persisted to `localStorage` for walk res
   - `BudgetCard` × 4: 1 hr = 60, 2 hrs = 120, Tonight = until 00:00 local (minimum 90), All day = 480
   - `StartCard` (Near me toggle / Pick on map sheet)
   - `PaceChips`: Easy 4.0 km/h, Brisk 5.2 km/h, Step-free = OSRM `foot` with a post-filter that avoids `steps` (via the edge `classes`/annotations; the MVP shows a "may include steps" note)
+  - `ShapeToggle`: **Loop** (default) or **One-way**. Loop starts at the origin (current location, or a pin such as a hotel), visits the stops, and ends back there. The engine also accepts `end-near` with a chosen finish point.
   - context line (open now · date · weather)
   - CTA "Build my route"
 - **States:**
@@ -164,7 +165,7 @@ Shared client state is a Zustand store, persisted to `localStorage` for walk res
 - **Components:**
   - `TasteMap` (MapLibre: pitch 42, bearing follows heading when walking)
   - `UserDot` (live-pulse, heading cone)
-  - `StopPin` (numbered; next / new / skipped variants)
+  - `StopPin` (numbered; next / new / skipped variants) and a home pin on the origin, in the same bubble-and-stem language
   - `RouteLine` (lilac with a white casing; dashed ghost after a re-route)
   - top `GeoChip`s (time left, stops done)
   - `NextStopSheet` (eyebrow, name, meta, 0.xx match, plum blurb, evidence chips, Skip / Go)
@@ -221,7 +222,7 @@ Shared client state is a Zustand store, persisted to `localStorage` for walk res
   - success
   - **undo** (restore the previous walk version)
   - re-route failure (keep the old route; toast "Couldn't update. Your route is unchanged.")
-  - nothing fits the remaining time → "That was your last stop. Head back?", which routes to the start
+  - remaining time about equal to the walk home → "Time to head back · 14 min" and no new stops. The return leg is always recomputed. The walk list ends with "Back to start · N min". A "Ride back" row (Uber and Lyft universal links, origin as the dropoff, no API keys) shows when that walk is over about 20 minutes or it's late.
 - **APIs:** `POST /api/reroute` (stateless: the client sends the walk, the cached-pool key and its fix) → returns `diff`, `stops` and `route`. **Undo is client-side**: restore the previous `walkVersion` from IndexedDB.
 - **Qloo:** usually **0 calls** (the candidate pool is cached with the walk). A call happens only when the pool is exhausted or the user has drifted more than 600 m from the pool's centroid (then a new insights call at the current position).
 
@@ -238,7 +239,7 @@ Every request carries `x-device-id` (rate-limit and analytics hint only). The pr
 | `GET /api/taste/search` | `?q=string&cat=artists|film|places` | `{results:[{id, name, type, subtitle, imageUrl?}]}` (trimmed) |
 | `GET /api/taste/tags` | `?q=string` | `{results:[{id, name, type}]}` |
 | `GET /api/context` | `?lat&lon` | `{localTime, weekday, tz, weather:{tempF, code, precipProbNext3h, isRainy}}` |
-| `POST /api/plan` | `{profile:{entities[], tags[]}, start:{lat,lon}, budgetMin, pace, mode, demo?:boolean}` | **UI message stream:** `data-step` (agent ticker), `data-stop` ×N, `data-route` (GeoJSON + legs), final `data-walk` `{walkId (client may override), version:1, poolKey, stops[], route, totals}` |
+| `POST /api/plan` | `{profile:{entities[], tags[]}, start:{lat,lon}, budgetMin, pace, mode, shape?:'loop'\|'one-way'\|'end-near', end?:{lat,lon,label?}, demo?:boolean}` | **UI message stream:** `data-step` (agent ticker), `data-stop` ×N, `data-route` (GeoJSON + legs), final `data-walk` `{walkId (client may override), version:1, poolKey, stops[], route, totals, shape, returnMin}` |
 | `POST /api/reroute` | `{profile, walk:{stops[], visited[], skipped[], vetoedTags[], startedAt, budgetMin, pace}, poolKey, fix:{lat,lon}, reason}` | `{diff:{removed[], added[], reordered, deltaMin}, stops[], route, toast}` |
 | `POST /api/blurb` | `{profile, stop:{entityId, name, evidence}}` | `{blurb}` (only when one is missing) |
 | `GET /api/demo` | — | the preset demo profile, walk and simulated GPS track (served from the Runtime Cache, warmed by cron) |
@@ -345,12 +346,16 @@ Starting points are snapped to **geohash-6** so nearby users share cached candid
 4. **Dwell time** per category: café 20, bar 35, live music 45, museum 50, park 15, restaurant 60, default 25. Easy pace adds 10%.
 5. **Selection (orienteering heuristic).**
    - Greedy insertion by the ratio `score / (Δwalk + dwell)`, inserting each candidate at its cheapest position in the current sequence, until no candidate fits.
-   - Constraint: `Σwalk + Σdwell ≤ budget − 5 min slack`.
-   - Then **2-opt** on the order and a **swap pass**: try replacing each chosen stop with an unchosen one if total score rises and the route still fits.
-   - Open path from the start. "Return to start" is an option, default off for travelers.
+   - Constraint: `Σwalk + Σdwell ≤ budget − 5 min slack`. On a loop or an end-near walk, the walk back to the finish is inside that sum. There is no dwell on the closing leg.
+   - Then **2-opt** on the order (on the cycle, when the walk closes) and a **swap pass**: try replacing each chosen stop with an unchosen one if total score rises and the route still fits.
+   - **Shape**, default `loop`:
+     - `loop` finishes at the origin. Prefer a loop over an out-and-back: the farthest stop lands roughly in the middle, and a return that retraces an outbound street loses to a near-equal alternative.
+     - `one-way` is an open path from the start.
+     - `end-near` finishes at a chosen point.
+   - **Order** is not nearest-neighbor. Each category has a time-of-day fit: coffee or breakfast early, sights, museums and shops in the daytime, dinner around 5:30–9pm, live music, bars and nightlife in the evening, dessert or a nightcap last and close to the origin. At most one full meal per meal window (breakfast before 11, lunch 11–3, dinner 5:30–9), and meals stay about 90 minutes apart. A stop has to be open at the estimated arrival and through its dwell (`filter.hours`). The insertion ratio scores affinity, time-of-day fit and walking cost together. The reason can show up in the blurb ("Dinner while kitchens are open.").
    - Target stop counts: 1 h → 2–3, 2 h → 4, tonight → 4–5, all day → 6–8 (cap 8).
 6. **Directions.**
-   - One OSRM `route/v1/foot` call with all waypoints (`overview=full&geometries=geojson`) → GeoJSON plus per-leg durations. OSRM's foot profile is slow (about 4.4 km/h), so scale leg durations by `paceFactor`.
+   - One OSRM `route/v1/foot` call with all waypoints (`overview=full&geometries=geojson`) → GeoJSON plus per-leg durations. A loop or end-near walk appends the finish as the last waypoint. OSRM's foot profile is slow (about 4.4 km/h), so scale leg durations by `paceFactor`.
    - Replace matrix estimates with the real leg times. If the total now exceeds the budget by more than 5%, drop the lowest-ratio stop and call again (at most once).
    - **Fallback** if OSRM fails or takes over 2 s: draw straight dashed segments with estimated minutes and the label "approx."
 7. **Re-route triggers.**
@@ -361,8 +366,9 @@ Starting points are snapped to **geohash-6** so nearby users share cached candid
    - `weather`: precipitation probability in the next hour goes above 60% while an outdoor stop is next.
    - **Debounce:** at most 1 automatic re-route every 90 s. Manual triggers are immediate.
 8. **Re-route logic.**
-   - Remaining budget = budget − elapsed. Keep visited stops.
-   - Re-run selection from the current fix using the **cached pool** (minus skipped stops). Bias toward keeping already-planned stops with a ×1.2 stability bonus, so the route doesn't churn.
+   - Remaining budget = budget − elapsed, and it still has to cover the walk back. Keep visited stops.
+   - Re-run selection from the current fix using the **cached pool** (minus skipped stops). Bias toward keeping already-planned stops with a ×1.2 stability bonus, so the route doesn't churn. Always recompute the return leg.
+   - When the time left is about the walk home (within about 8 minutes), stop offering new stops and return "Time to head back · N min".
    - Diff old and new versions (`added`, `removed`, `reordered`, `deltaMin`). The agent writes a one-line toast from that diff.
    - The client saves it as a new `walkVersion` in IndexedDB so Undo can restore it.
 
@@ -415,6 +421,7 @@ type TasteProfile = { entities: {id: string; name: string; type: 'artist'|'movie
 // key 'tq:v1:walks'         -> WalkSummary[]  (index: id, status, startedAt, city)
 // key 'tq:v1:walk:<id>'     -> Walk
 type Walk = { id: string; status: 'planning'|'active'|'done'|'abandoned'; mode: string; budgetMin: number; pace: 'easy'|'brisk'|'stepfree';
+              shape?: 'loop'|'one-way'|'end-near'; end?: {lat: number; lon: number; label?: string}; returnMin?: number; headingBack?: boolean;
               start: {lat: number; lon: number; label?: string}; isDemo: boolean; poolKey: string; pool?: Candidate[]; // trimmed, active walk only
               currentVersion: number; versions: WalkVersion[]; startedAt?: string; endedAt?: string };
 type WalkVersion = { version: number; reason: 'initial'|'offroute'|'skip'|'veto'|'late'|'closed'|'weather'; createdAt: string;
@@ -466,7 +473,7 @@ type Stop = { seq: number; entityId: string; name: string; lat: number; lon: num
 ## 9. Testing, QA, observability, submission
 
 - **Unit (Vitest):**
-  - engine: selection respects the budget, 2-opt never lengthens the route, re-route stability, hours parsing across midnight, dedupe
+  - engine: selection respects the budget including the walk home, 2-opt never lengthens an open route, loop closure, time-of-day order, one meal per window, hours through the dwell, re-route stability, hours parsing across midnight, dedupe
   - Qloo normalizer, on synthetic fixtures
   - tag priority picker
   - hallucination guard

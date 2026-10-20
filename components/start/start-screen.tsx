@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { DEMO_START } from "@/lib/taste/curated";
 import { useQuest } from "@/store/use-quest";
-import type { BudgetMode, Pace } from "@/lib/types";
+import type { BudgetMode, Pace, ShapeMode } from "@/lib/types";
 
 const Picker = dynamic(() => import("@/components/start/map-picker").then((mod) => mod.MapPicker), { ssr: false });
 
@@ -27,6 +27,7 @@ export function StartScreen() {
   const setNeedsPlan = useQuest((s) => s.setNeedsPlan);
   const [mode, setMode] = useState<BudgetMode>("2h");
   const [pace, setPace] = useState<Pace>("easy");
+  const [shape, setShape] = useState<ShapeMode>("loop");
   const [near, setNear] = useState(true);
   const [label, setLabel] = useState("Finding you…");
   const [lat, setLat] = useState<number | null>(null);
@@ -142,6 +143,14 @@ export function StartScreen() {
         <p style={{ marginTop: 8, color: "var(--color-slate)", fontSize: 15, lineHeight: "22px" }}>
           We’ll fit the walk to it and re-plan as you go.
         </p>
+        <div className="shape-toggle" role="group" aria-label="Route shape">
+          <button type="button" aria-pressed={shape === "loop"} onClick={() => setShape("loop")}>
+            Loop
+          </button>
+          <button type="button" aria-pressed={shape === "one-way"} onClick={() => setShape("one-way")}>
+            One-way
+          </button>
+        </div>
         </div>
         <div className="budget-grid">
           {CARDS.map((card) => {
@@ -282,7 +291,7 @@ export function StartScreen() {
           onClick={() => {
             if (lat == null || lon == null) return;
             const minutes = minutesFor(mode);
-            setBudget({ minutes, mode, pace });
+            setBudget({ minutes, mode, pace, shape });
             setStart({ lat, lon, label, source, accuracyM: accuracy });
             setNeedsPlan(true);
             router.push("/explore");

@@ -2,6 +2,8 @@ export type EntityType = "artist" | "movie" | "tv_show" | "place";
 export type TagCat = "cuisine" | "vibe";
 export type Pace = "easy" | "brisk" | "stepfree";
 export type BudgetMode = "1h" | "2h" | "tonight" | "allday";
+/** loop returns to the origin, one-way ends at the last stop, end-near finishes at a chosen point. */
+export type ShapeMode = "loop" | "one-way" | "end-near";
 export type StopState = "todo" | "next" | "visited" | "skipped" | "vetoed";
 export type WalkStatus = "planning" | "active" | "done" | "abandoned";
 export type RerouteReason =
@@ -38,6 +40,10 @@ export type Budget = {
   minutes: number;
   mode: BudgetMode;
   pace: Pace;
+  /** Closed loop unless the walker chooses otherwise. */
+  shape?: ShapeMode;
+  /** Dropoff for an end-near walk. */
+  end?: LatLon & { label?: string };
 };
 
 export type StartPoint = {
@@ -107,6 +113,8 @@ export type Stop = {
   sample?: boolean;
   /** Just inserted by a re-route. Draws the flare "New" pin. */
   introduced?: boolean;
+  /** Why this stop sits where it does, e.g. "dinner while kitchens are open". */
+  orderNote?: string;
 };
 
 export type LineString = {
@@ -155,6 +163,14 @@ export type Walk = {
   remainingMin?: number;
   /** Map user dot when it is not the start point. */
   cursor?: { lat: number; lon: number };
+  /** How the walk finishes. Missing means a loop back to the start. */
+  shape?: ShapeMode;
+  /** Chosen finish for an end-near walk. */
+  end?: LatLon & { label?: string };
+  /** Minutes to walk the closing leg. Zero on a one-way walk. */
+  returnMin?: number;
+  /** Remaining time is about the walk home, so no new stops are offered. */
+  headingBack?: boolean;
 };
 
 export type PlanEvent =
