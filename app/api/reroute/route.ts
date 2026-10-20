@@ -1,4 +1,4 @@
-import { rerouteWalk } from "@/lib/plan/build";
+import { EditError, rerouteWalk } from "@/lib/plan/build";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { jsonError, rerouteSchema } from "@/lib/schemas";
 import type { Candidate, Walk, WalkVersion } from "@/lib/types";
@@ -28,6 +28,7 @@ export async function POST(req: Request): Promise<Response> {
       reason: parsed.data.reason,
       pool: walk.pool,
       tz: parsed.data.tz,
+      edit: parsed.data.edit,
     });
     return Response.json({
       diff: result.diff,
@@ -36,7 +37,8 @@ export async function POST(req: Request): Promise<Response> {
       toast: result.toast,
       walk: result.walk,
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof EditError) return jsonError(409, "edit_invalid", error.message);
     return jsonError(502, "reroute_failed", "Couldn't update. Your route is unchanged.");
   }
 }

@@ -511,3 +511,73 @@ describe("review round 1 (PR #23)", () => {
     expect(prepareCandidates([brewery], { ...base, rainy: false })).toHaveLength(1);
   });
 });
+
+describe("hand edits (#21)", () => {
+  const upcoming = (walk: Walk) =>
+    walk.versions[walk.versions.length - 1]!.stops.filter((s) => s.state === "todo" || s.state === "next").map((s) => s.entityId);
+  const edit = (walk: Walk, e: import("@/lib/types").WalkEdit) =>
+    rerouteWalk({ profile: demoProfile(), walk, fix: { lat: walk.start.lat, lon: walk.start.lon }, reason: "edit", edit: e, tz: "America/Chicago" });
+  // The keyless Austin demo runs on a fixed Saturday 7pm clock, so the result
+  // doesn't depend on when the test runs. A no-op reorder gives a generic walk
+  // with alternatives, like a live plan.
+  const plan = async () => {
+    const demo = await buildWalk({
+      profile: demoProfile(),
+      start: { ...DEMO_START, source: "demo" },
+      budgetMin: 120,
+      pace: "easy",
+      mode: "tonight",
+      shape: "loop",
+      demo: true,
+      tz: "America/Chicago",
+    });
+    return (await edit(demo, { kind: "order", ids: upcoming(demo) })).walk;
+  };
+
+  it("returns ranked alternatives that are not on the walk", async () => {
+    const walk = await plan();
+    const on = new Set(upcoming(walk));
+    expect(walk.alternatives?.length ?? 0).toBeGreaterThan(0);
+    expect(walk.alternatives!.every((alt) => !on.has(alt.entityId))).toBe(true);
+  });
+
+  it("adds a place without reshuffling the others", async () => {
+    const walk = await plan();
+    const before = upcoming(walk);
+    const alt = walk.alternatives![0]!;
+    const result = await edit(walk, { kind: "add", id: alt.entityId });
+    const after = upcoming(result.walk);
+    expect(after).toContain(alt.entityId);
+    expect(after.filter((id) => id !== alt.entityId)).toEqual(before);
+    expect(result.toast).toMatch(/^Added /);
+  });
+
+  it("swaps into the replaced stop's slot and removes and reorders", async () => {
+    const walk = await plan();
+    const before = upcoming(walk);
+    expect(before.length).toBeGreaterThan(1);
+    const alt = walk.alternatives![0]!;
+    const swapped = upcoming((await edit(walk, { kind: "swap", id: alt.entityId, replace: before[1]! })).walk);
+    expect(swapped[1]).toBe(alt.entityId);
+    expect(swapped).not.toContain(before[1]);
+    const removed = upcoming((await edit(walk, { kind: "remove", id: before[0]! })).walk);
+    expect(removed).toEqual(before.slice(1));
+    const reversed = [...before].reverse();
+    const reorder = await edit(walk, { kind: "order", ids: reversed });
+    expect(upcoming(reorder.walk)).toEqual(reversed);
+    expect(reorder.toast).not.toMatch(/over your time/);
+  });
+
+  it("refuses to add a place it doesn't know", async () => {
+    const walk = await plan();
+    await expect(edit(walk, { kind: "add", id: "nope" })).rejects.toThrow(/can't be added/);
+  });
+
+  it("re-plans a loop from a moved start", async () => {
+    const walk = await plan();
+    const result = await edit(walk, { kind: "start", lat: 30.2655, lon: -97.7445 });
+    expect(result.walk.start.lat).toBe(30.2655);
+    expect(result.walk.start.source).toBe("pin");
+    expect(result.toast).toMatch(/^Moved your start/);
+  });
+});
