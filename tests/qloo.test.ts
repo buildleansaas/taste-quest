@@ -159,3 +159,21 @@ describe("review round 1 (PR #23)", () => {
     expect(place?.tags.some((tag) => tag.id.includes("category:place"))).toBe(true);
   });
 });
+
+describe("OSRM fallback log", () => {
+  it("never logs the router base URL", async () => {
+    const { vi } = await import("vitest");
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((line: unknown) => {
+      logs.push(String(line));
+    });
+    const prev = process.env.OSRM_BASE_URL;
+    process.env.OSRM_BASE_URL = "not a url secret-token-123";
+    const { routeFoot } = await import("@/lib/routing/osrm");
+    const routed = await routeFoot([{ lat: 30.26, lon: -97.74 }, { lat: 30.27, lon: -97.75 }], "easy");
+    process.env.OSRM_BASE_URL = prev;
+    spy.mockRestore();
+    expect(routed.approximate).toBe(true);
+    expect(logs.join("\n")).not.toContain("secret-token-123");
+  });
+});

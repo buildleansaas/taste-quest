@@ -81,7 +81,8 @@ export async function routeFoot(points: LatLon[], pace: Pace): Promise<Routed> {
   } catch (error) {
     log("warn", "osrm-fallback", {
       latencyMs: Date.now() - started,
-      error: error instanceof Error ? error.message : String(error),
+      // The base URL carries the router's auth token, so never log it.
+      error: (error instanceof Error ? error.message : String(error)).split(base).join("<OSRM_BASE_URL>"),
     });
     return straightRoute(points, pace);
   }
