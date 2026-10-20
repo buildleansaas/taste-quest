@@ -524,6 +524,8 @@ html[data-frame="1"] .home-ind { display: block; }
 .hud-chips { display: flex; gap: 8px; min-width: 0; }
 .explore-sheet { height: var(--sheet-h, 316px); }
 .hud > *, .locate > * { pointer-events: auto; }
+/* The info chips are read-only, so drags that start on them pan the map. */
+.hud > .hud-chips { pointer-events: none; }
 button.icon-btn { border: 0; padding: 0; cursor: pointer; }
 .locate {
   pointer-events: none;
@@ -535,8 +537,9 @@ button.icon-btn { border: 0; padding: 0; cursor: pointer; }
 html[data-frame="1"] .locate { bottom: calc(var(--sheet-h, 316px) + 14px); }
 .approx-tag {
   position: absolute;
-  right: calc(16px + var(--sar));
-  bottom: calc(var(--sheet-h, 316px) + 24px);
+  /* Left of the Recenter button (40px + 8px gap), level with its centre. */
+  right: calc(16px + 48px + var(--sar));
+  bottom: calc(var(--sheet-h, 316px) + 24px + var(--sab));
   z-index: 10;
   font-size: 12px;
   color: var(--color-slate-dim);
@@ -614,6 +617,9 @@ html:not([data-frame="1"]) .explore-sheet {
   }
   html:not([data-frame="1"]) .locate {
     bottom: calc(min(220px, 42dvh) + 14px);
+  }
+  html:not([data-frame="1"]) .approx-tag {
+    bottom: calc(min(220px, 42dvh) + 24px);
   }
 }
 @media (display-mode: standalone) {
