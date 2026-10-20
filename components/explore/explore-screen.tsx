@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { useMinWidth } from "@/components/chrome/use-wide";
@@ -51,7 +51,8 @@ export function ExploreScreen() {
     return () => window.clearInterval(tick);
   }, []);
   const [online, setOnline] = useState(true);
-  const [fix, setFix] = useState<{ lat: number; lon: number } | null>(null);
+  const [fix, setFix] = useState<{ lat: number; lon: number; accuracy: number; at: number } | null>(null);
+  const usedFix = useRef(0);
   const [liveStops, setLiveStops] = useState<Stop[]>([]);
   const [liveRoute, setLiveRoute] = useState<WalkRoute | null>(null);
   const wide = useMinWidth(768);
@@ -139,7 +140,7 @@ export function ExploreScreen() {
   useEffect(() => {
     if (!start || !navigator.geolocation) return;
     const watch = navigator.geolocation.watchPosition(
-      (pos) => setFix({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      (pos) => setFix({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, at: pos.timestamp }),
       () => undefined,
       { enableHighAccuracy: true },
     );
@@ -161,11 +162,16 @@ export function ExploreScreen() {
   const next = stops.find((stop) => stop.state === "next") ?? stops.find((stop) => stop.state === "todo");
   const done = stops.filter((stop) => stop.state === "visited").length;
 
-  // Walking up to the next stop checks you in (a real fix within ARRIVE_M).
+  // Walking up to the next stop checks you in. Each GPS fix is used once, so
+  // two venues in one block never chain-arrive, and a fuzzy indoor fix
+  // (accuracy worse than ARRIVE_M) never counts. Paused while a skip is in flight.
   useEffect(() => {
-    if (!walk || !fix || !next || walk.status === "done") return;
-    if (haversineM(fix, next) <= ARRIVE_M) setWalk(arriveAt(walk, next.entityId));
-  }, [fix, next, walk, setWalk]);
+    if (!walk || !fix || !next || walk.status === "done" || skipping) return;
+    if (fix.at === usedFix.current || fix.accuracy > ARRIVE_M) return;
+    if (haversineM(fix, next) > ARRIVE_M) return;
+    usedFix.current = fix.at;
+    setWalk(arriveAt(walk, next.entityId));
+  }, [fix, next, walk, setWalk, skipping]);
 
   // The stop page sends Skip and "I'm here" back here as ?do=skip|arrive&id=…
   // so both run the same code as the map's buttons.
@@ -179,12 +185,13 @@ export function ExploreScreen() {
     setPending({ action, id });
   }, []);
   useEffect(() => {
-    if (!pending || !walk || !next || next.entityId !== pending.id) return;
+    if (!pending || !hydrated || !walk) return;
     setPending(null);
+    if (!next || next.entityId !== pending.id) return;
     if (pending.action === "arrive") setWalk(arriveAt(walk, next.entityId));
     if (pending.action === "skip") void skip();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, walk, next]);
+  }, [pending, hydrated, walk, next]);
   const user: [number, number] | undefined = fix
     ? [fix.lon, fix.lat]
     : start
@@ -260,14 +267,21 @@ export function ExploreScreen() {
       : stopPins;
 
   async function skip() {
-    if (!walk || !profile || !next || !online || skipping) return;
+    if (!walk || !profile || !next || skipping) return;
+    if (!online) {
+      setToast("You’re offline. Your route is unchanged.");
+      window.setTimeout(() => setToast(null), 5000);
+      return;
+    }
     const previous = walk;
     const here = replanFrom(walk, fix);
     setSkipping(true);
     const response = await fetch("/api/reroute", {
       method: "POST",
       headers: { "content-type": "application/json", "x-device-id": deviceId },
-      body: JSON.stringify({ profile, walk, fix: here, reason: "skip", tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      // Only the latest versions travel: the server reads the last one, and the
+      // schema caps the list, so a long walk never starts failing every skip.
+      body: JSON.stringify({ profile, walk: { ...walk, versions: walk.versions.slice(-10) }, fix: here, reason: "skip", tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
     }).catch(() => null);
     setSkipping(false);
     if (!response?.ok) {
@@ -284,7 +298,7 @@ export function ExploreScreen() {
   }
 
   function arrive(entityId: string) {
-    if (!walk) return;
+    if (!walk || skipping) return;
     setWalk(arriveAt(walk, entityId));
   }
 
@@ -418,6 +432,7 @@ export function ExploreScreen() {
               onFinish={endWalk}
             />
           ) : listed && !next ? (
+            <>
             <WalkList
               stops={stops}
               totals={version?.totals}
@@ -432,6 +447,12 @@ export function ExploreScreen() {
                 ) : null
               }
             />
+            {walk ? (
+              <button className="btn btn-primary btn-block" type="button" style={{ marginTop: 12 }} onClick={endWalk}>
+                Finish walk
+              </button>
+            ) : null}
+            </>
           ) : next && wide ? (
             <>
               <NextSheet
@@ -595,7 +616,7 @@ function NextSheet({
         <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onSkip} disabled={skipping}>
           {skipping ? "Re-routing…" : "Skip"}
         </button>
-        <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onArrive}>
+        <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onArrive} disabled={skipping}>
           I’m here
         </button>
         <button className="btn btn-primary" type="button" style={{ flex: 1.4 }} onClick={onOpen}>

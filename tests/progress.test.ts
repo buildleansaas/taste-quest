@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWalk, rerouteWalk } from "@/lib/plan/build";
+import { SAMPLE_PLACES } from "@/lib/qloo/sample";
 import { demoProfile, DEMO_START } from "@/lib/taste/curated";
 import { arriveAt, finishWalk, nextStop, replanFrom } from "@/lib/walk/progress";
 import type { Walk } from "@/lib/types";
@@ -62,6 +63,34 @@ describe("walk progress", () => {
 });
 
 describe("demo skips", () => {
+  const fix = { lat: DEMO_START.lat, lon: DEMO_START.lon };
+
+  it("the first skip is still the scripted beat", async () => {
+    const first = await rerouteWalk({ profile: demoProfile(), walk: await demoWalk(), fix, reason: "skip" });
+    expect(nextStop(first.walk)?.entityId).toBe("sample-place-museum-weird");
+    const stops = first.walk.versions.at(-1)!.stops;
+    expect(stops.find((stop) => stop.name === "Midnight Cowboy")?.state).toBe("skipped");
+  });
+
+  it("I'm here at Antone's then skip still scripts; past Midnight Cowboy it re-plans", async () => {
+    const atAntones = arriveAt(await demoWalk(), "sample-place-antones");
+    const scripted = await rerouteWalk({ profile: demoProfile(), walk: atAntones, fix, reason: "skip" });
+    expect(nextStop(scripted.walk)?.entityId).toBe("sample-place-museum-weird");
+    const pastMidnight = arriveAt(atAntones, nextStop(atAntones)!.entityId);
+    const replanned = await rerouteWalk({ profile: demoProfile(), walk: pastMidnight, fix, reason: "skip" });
+    expect(replanned.walk.versions.at(-1)!.stops.find((stop) => stop.name === "Midnight Cowboy")?.state).toBe("visited");
+  });
+
+  it("a one-way walk whose last skip finds nothing new is done, not stuck", async () => {
+    let walk: Walk = { ...(await demoWalk()), currentVersion: 2, shape: "one-way", returnMin: 0 };
+    for (let i = 0; i < 3; i += 1) walk = arriveAt(walk, nextStop(walk)!.entityId);
+    const ids = new Set(walk.versions.at(-1)!.stops.map((stop) => stop.entityId));
+    const pool = SAMPLE_PLACES.filter((place) => ids.has(place.entityId));
+    const result = await rerouteWalk({ profile: demoProfile(), walk, fix, reason: "skip", pool });
+    expect(nextStop(result.walk)).toBeUndefined();
+    expect(result.walk.status).toBe("done");
+  });
+
   it("plays the scripted beat once, then a second skip moves on", async () => {
     const walk = await demoWalk();
     const fix = { lat: DEMO_START.lat, lon: DEMO_START.lon };

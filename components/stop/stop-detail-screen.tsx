@@ -50,15 +50,19 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
       .then((res) => res.json())
       .then((body: { blurb?: string }) => {
         if (!body.blurb) return;
-        const versions = walk.versions.map((item, index) =>
-          index === walk.versions.length - 1
+        // Write into the walk as it is now, not the one captured when the fetch
+        // started: Skip or I'm here may have changed it while the blurb loaded.
+        const current = useQuest.getState().walk;
+        if (!current || current.id !== walk.id) return;
+        const versions = current.versions.map((item, index) =>
+          index === current.versions.length - 1
             ? {
                 ...item,
                 stops: item.stops.map((row) => (row.entityId === stop.entityId ? { ...row, blurb: body.blurb } : row)),
               }
             : item,
         );
-        setWalk({ ...walk, versions });
+        setWalk({ ...current, versions });
       })
       .catch(() => undefined);
   }, [stop, profile, walk, deviceId, setWalk]);

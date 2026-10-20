@@ -447,6 +447,8 @@ export async function rerouteWalk(input: {
         end: input.walk.end,
       });
   if (!headingBack && terminus && chosen.length === 0) headingBack = true;
+  // A one-way walk has nowhere to head back to: no stops left means it is done.
+  const doneNow = !terminus && chosen.length === 0;
   const points: LatLon[] = [
     { lat: input.fix.lat, lon: input.fix.lon },
     ...chosen.map((stop) => ({ lat: stop.lat, lon: stop.lon })),
@@ -476,6 +478,7 @@ export async function rerouteWalk(input: {
   const plannedLeft = routed.walkMin + fresh.reduce((sum, stop) => sum + stop.dwellMin, 0);
   const walk: Walk = {
     ...input.walk,
+    ...(doneNow ? { status: "done" as const } : {}),
     currentVersion: versionNumber,
     versions: [...input.walk.versions, version],
     pool,
