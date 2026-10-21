@@ -13,6 +13,7 @@ import {
   osrmLine,
   readPlanContext,
   routeChosen,
+  vibeMatches,
   vibeTags,
   type PlanBasis,
   type PlanInput,
@@ -58,6 +59,7 @@ type AgentState = {
   plan?: { chosen: ChosenStop[]; routed: Awaited<ReturnType<typeof routeChosen>>["routed"]; total: number };
   reasons: Map<string, string>;
   explainCalls: number;
+  lastRejected: number;
   placesShown: number;
   steps: string[];
 };
@@ -96,7 +98,7 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
   if ((input.demo && isDemoProfile(input.profile) && !opts.recordDemo) || (!opts.model && !gatewayReady())) return buildWalk(input);
   const budget = await reserve("agent-plan", [AGENT_MODEL, FALLBACK_MODEL], WORST_CASE, { countRun: true });
   if (!budget) return buildWalk(input);
-  const state: AgentState = { extraTags: [], vibeLookups: 0, reasons: new Map(), explainCalls: 0, placesShown: 0, steps: [] };
+  const state: AgentState = { extraTags: [], vibeLookups: 0, reasons: new Map(), explainCalls: 0, lastRejected: 0, placesShown: 0, steps: [] };
   const step = (text: string) => {
     state.steps.push(text);
     input.onStep?.(text);
@@ -124,7 +126,7 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
         // The pool is fixed once loaded; a late vibe can't change it, so it isn't shown as a step.
         if (state.basis || state.loading) return { added: [], note: "Places are already loaded; call add_vibe before find_places." };
         state.vibeLookups += 1;
-        const hits = (await searchTags(phrase).catch(() => [])).slice(0, 2);
+        const hits = vibeMatches(phrase, await searchTags(phrase).catch(() => [])).slice(0, 2);
         const added = hits
           .filter((hit) => !state.extraTags.some((tag) => tag.id === hit.id))
           .map((hit) => ({ id: hit.id, name: hit.name, cat: "vibe" as const }));
@@ -208,6 +210,7 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
         const kept = [...planned.keys()].filter((id) => state.reasons.has(id)).length;
         if (!rejected.length || state.explainCalls >= 1) step(`Wrote why each stop fits you, from the taste evidence (${kept} of ${planned.size})`);
         state.explainCalls += 1;
+        state.lastRejected = rejected.length;
         // Rejected reasons go back to the model, so it can rewrite them once.
         return { kept, of: planned.size, rejected };
       },
@@ -221,6 +224,9 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
     `Time: ${input.budgetMin} minutes, ${input.pace} pace, ${input.shape ?? "loop"}.`,
   ].join("\n");
 
+  // Set once the model loop ends; after that an error is ours, not the model's,
+  // so the catch falls back to the plain planner instead of reusing the plan.
+  let loopDone = false;
   try {
     step("Reading your tastes…");
     const result = await generateText({
@@ -230,7 +236,11 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
       tools,
       // Stop at the step cap, or as soon as usage reaches the hold, so one run
       // costs at most its hold plus one step.
-      stopWhen: [isStepCount(MAX_STEPS), () => budget.over()],
+      // Done once the reasons are in: all kept, or after the one rewrite.
+      stopWhen: [isStepCount(MAX_STEPS), () => state.explainCalls >= 2 || (state.explainCalls >= 1 && state.lastRejected === 0), () => budget.over()],
+      // Every step must be a tool call: on live Qloo data the model once answered
+      // in text after find_places and never planned. The run ends at explain_stops.
+      toolChoice: "required",
       maxOutputTokens: STEP_OUTPUT_TOKENS,
       maxRetries: 1,
       abortSignal: AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS),
@@ -238,6 +248,7 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
       onStepFinish: (stepResult) => budget.step(stepResult.usage),
       ...(opts.model ? {} : { providerOptions: modelOptions(FALLBACK_MODEL) }),
     });
+    loopDone = true;
     await budget.settle(false);
     if (!state.basis || !state.plan) throw new Error("agent stopped without a plan");
     return assembleWalk(input, state.basis, state.plan, {
@@ -247,6 +258,12 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
     });
   } catch (error) {
     await budget.settle(true);
+    // The agent got as far as a plan (the error came while writing reasons):
+    // keep its plan; stops without a reason keep the template text.
+    if (!loopDone && state.basis && state.plan) {
+      log("warn", "agent-partial", { error: error instanceof Error ? error.message : String(error), steps: state.steps.length });
+      return assembleWalk(input, state.basis, state.plan, { blurbs: state.reasons, agent: { model: AGENT_MODEL, steps: state.steps } });
+    }
     log("warn", "agent-fallback", { error: error instanceof Error ? error.message : String(error), steps: state.steps.length });
     // The deterministic planner, with the vibe tags the agent already found (or looks them up itself).
     input.onStep?.("Finishing the plan without the agent…");

@@ -65,3 +65,23 @@ describe("blurb input limits", () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe("vibe tag matching", () => {
+  it("keeps tags that share a word with the phrase and drops loose matches", async () => {
+    const { vibeMatches } = await import("@/lib/plan/build");
+    const hits = [
+      { id: "1", name: "Live Music" },
+      { id: "2", name: "Live Music" },
+      { id: "3", name: "Not Just Pizzas Sbarro Offers Stuffed Strombolis Too" },
+      { id: "4", name: "Mole Enchiladas Too Sweet Not Spicy Enough" },
+      { id: "5", name: "Fancy" },
+    ];
+    expect(vibeMatches("live music", hits).map((hit) => hit.id)).toEqual(["1"]);
+    expect(vibeMatches("not too fancy", hits).map((hit) => hit.id)).toEqual(["5"]);
+    expect(vibeMatches("rooftops", [{ id: "r", name: "Rooftop" }]).map((hit) => hit.id)).toEqual(["r"]);
+    expect(vibeMatches("dive bar", [{ id: "d", name: "Dive Bars" }]).map((hit) => hit.id)).toEqual(["d"]);
+    // A shared prefix is not a match.
+    expect(vibeMatches("not too fancy", [{ id: "f", name: "Fan Favorite" }])).toEqual([]);
+    expect(vibeMatches("bar", [{ id: "b", name: "Barbecue" }])).toEqual([]);
+  });
+});

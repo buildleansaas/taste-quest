@@ -242,3 +242,44 @@ describe("agent spend stays bounded", () => {
     delete process.env.AI_BUDGET_KEY_SUFFIX;
   });
 });
+
+describe("agent finishes its plan", () => {
+  it("an error after plan_walk keeps the agent's plan", async () => {
+    const model = scripted((results) => {
+      if (results.length === 0) return { tool: "find_places", input: {} };
+      if (results.length === 1) return { tool: "plan_walk", input: {} };
+      return new Error("gateway dropped the stream while writing reasons");
+    });
+    const walk = await agentWalk(input([]), { model });
+    expect(walk.agent).toBeDefined();
+    expect(walk.agent?.steps.some((line) => line.startsWith("Planned "))).toBe(true);
+  });
+
+  it("stops after the one rewrite of rejected reasons", async () => {
+    let explains = 0;
+    const model = scripted((results) => {
+      if (results.length === 0) return { tool: "find_places", input: {} };
+      if (results.length === 1) return { tool: "plan_walk", input: {} };
+      // Keep calling explain_stops with a reason that is always rejected.
+      explains += 1;
+      const stops = value(results[1]).stops as { id: string }[];
+      return { tool: "explain_stops", input: { reasons: stops.map((stop) => ({ id: stop.id, why: "Open till 4am and free entry for everyone." })) } };
+    });
+    const walk = await agentWalk(input([]), { model });
+    expect(explains).toBe(2);
+    expect(walk.agent).toBeDefined();
+  });
+
+  it("stops as soon as every reason is kept", async () => {
+    let calls = 0;
+    const model = scripted((results) => {
+      calls += 1;
+      if (results.length === 0) return { tool: "find_places", input: {} };
+      if (results.length === 1) return { tool: "plan_walk", input: {} };
+      const stops = value(results[1]).stops as { id: string; name: string }[];
+      return { tool: "explain_stops", input: { reasons: stops.map((stop) => ({ id: stop.id, why: `People who love Khruangbin tend to love ${stop.name}. A good stop.` })) } };
+    });
+    await agentWalk(input([]), { model });
+    expect(calls).toBe(3);
+  });
+});
