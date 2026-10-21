@@ -48,6 +48,8 @@ type Props = {
   className?: string;
   /** Slowly turns the camera (the welcome backdrop). Off under reduced motion. */
   orbit?: boolean;
+  /** Street and place names; off for a backdrop. */
+  labels?: boolean;
 };
 
 const COLORS = {
@@ -83,6 +85,7 @@ export function TasteMap({
   onPick,
   className,
   orbit = false,
+  labels = true,
 }: Props) {
   const node = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -127,6 +130,7 @@ export function TasteMap({
       if (!map.getStyle()?.layers?.length) return;
       try {
         recolor(map);
+        if (!labels) hideLabels(map);
         paint(map, scene.current, markers, shouldFit());
       } catch (err) {
         console.warn("map paint", err);
@@ -209,6 +213,12 @@ function fitPad(pad: MapPad | undefined, width: number, height: number): MapPad 
     left: Math.max(8, pad.left * scale),
     right: Math.max(8, pad.right * scale),
   };
+}
+
+function hideLabels(map: maplibregl.Map) {
+  for (const layer of map.getStyle().layers ?? []) {
+    if (layer.type === "symbol") map.setLayoutProperty(layer.id, "visibility", "none");
+  }
 }
 
 function recolor(map: maplibregl.Map) {

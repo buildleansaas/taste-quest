@@ -60,7 +60,8 @@ export function ExploreScreen() {
   const arrivedAt = useRef(0);
   const [liveStops, setLiveStops] = useState<Stop[]>([]);
   const [liveRoute, setLiveRoute] = useState<WalkRoute | null>(null);
-  const wide = useMinWidth(768);
+  const wide = useMinWidth(1024);
+  const tabletUp = useMinWidth(768);
 
   useEffect(() => {
     void hydrate();
@@ -236,19 +237,25 @@ export function ExploreScreen() {
   const listed = stops.some((stop) => stop.state === "visited" || stop.state === "skipped");
   const design = walk?.poolKey === DESIGN_POOL;
   const routePts = route?.geometry.coordinates ?? [];
+  // The hand-tuned demo frames fit the first plan and the scripted skip only;
+  // any later re-plan frames its own route.
+  // They are tuned for a phone screen, so wider screens frame the real route.
+  const scripted = design && !tabletUp && (walk?.currentVersion ?? 1) <= 2;
   const frame = wide && routePts.length > 1
     ? routePts
-    : design
+    : scripted
       ? (listed ? REROUTE_FRAME : EXPLORE_FRAME)
       : routePts.length > 1
         ? routePts
         : undefined;
   const pad = wide
     ? { top: 96, bottom: 72, left: 24 + 380 + 64, right: 88 }
-    : listed
+    : !scripted && routePts.length > 1
+      ? { top: 150, bottom: 360, left: 48, right: 48 }
+      : listed
       ? REROUTE_PAD
       : EXPLORE_PAD;
-  const zoomOut = wide ? 0.15 : listed ? REROUTE_ZOOM_OUT : EXPLORE_ZOOM_OUT;
+  const zoomOut = wide ? 0.15 : !scripted && routePts.length > 1 ? 0.1 : listed ? REROUTE_ZOOM_OUT : EXPLORE_ZOOM_OUT;
   const cursor = walk?.cursor;
   const fixNearDesign =
     !design ||
@@ -387,9 +394,11 @@ export function ExploreScreen() {
                 <span className="dot" style={{ background: "var(--color-accent)" }} />
                 {walk?.headingBack ? `${leftLabel} home` : `${leftLabel} left`}
               </span>
-              <span className="geo-chip">
-                {`${done} of ${stops.filter((stop) => stop.state !== "skipped" && stop.state !== "vetoed").length || "–"} stops`}
-              </span>
+              {stops.length > 0 ? (
+                <span className="geo-chip">
+                  {`${done} of ${stops.filter((stop) => stop.state !== "skipped" && stop.state !== "vetoed").length} stops`}
+                </span>
+              ) : null}
             </>
           )}
         </div>

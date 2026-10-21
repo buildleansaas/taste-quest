@@ -489,13 +489,13 @@ html[data-frame="1"] .home-ind { display: block; }
 .welcome-side { display: contents; }
 /* The backdrop is the product itself: downtown Austin and the demo route, dark. */
 .welcome-map { position: absolute; inset: 0; opacity: 0; animation: welcome-in 1.2s 0.3s var(--ease) forwards; }
-.welcome-map canvas { filter: invert(1) hue-rotate(180deg) brightness(0.82) saturate(0.7); }
+.welcome-map canvas { filter: invert(1) hue-rotate(180deg) brightness(0.95) saturate(0.8); }
 .welcome-scrim {
   position: absolute;
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(180deg, #05070dd9 0%, #05070d66 22%, #05070d10 42%, #05070d8c 64%, #05070df2 86%),
+    linear-gradient(180deg, #05070dcc 0%, #05070d40 20%, #05070d00 38%, #05070d73 60%, #05070deb 84%),
     radial-gradient(55% 45% at 85% 95%, #6b4a8a66 0%, transparent 70%);
 }
 @keyframes welcome-in { to { opacity: 1; } }
@@ -649,8 +649,8 @@ html[data-frame="1"] .locate { bottom: calc(var(--sheet-h, 316px) + 14px); }
 .match b { font-size: 24px; font-weight: 600; line-height: 30px; }
 .match small { font-family: var(--font-sans); font-size: 11px; color: var(--color-slate-dim); line-height: 14px; white-space: nowrap; }
 /* Taste tags: one row; whole tags only, the rest fold into "+N". */
-.tag-row { display: flex; gap: 6px; margin-top: 12px; min-width: 0; }
-.tag-row .chip { height: 30px; font-size: 13px; padding: 0 11px; box-shadow: none; flex: none; max-width: 100%; }
+.tag-row { display: flex; gap: 6px; margin-top: 12px; min-width: 0; overflow: hidden; }
+.tag-row .chip { height: 30px; font-size: 13px; padding: 0 10px; gap: 6px; box-shadow: none; flex: none; max-width: 100%; }
 .tag-row .chip .name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .tag-row .chip.taste { background: var(--cat-artists-wash); color: var(--cat-artists); }
 .tag-row .chip.more { background: var(--color-surface-alt); color: var(--color-slate); }
@@ -778,7 +778,7 @@ html:not([data-frame="1"]) .explore-sheet {
     grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.75fr);
     width: min(1040px, calc(100% - 64px));
     min-height: min(720px, calc(100dvh - 80px));
-    margin: 40px auto;
+    margin: max(40px, calc((100dvh - 720px) / 2)) auto;
     align-items: stretch;
     gap: 20px;
   }
@@ -787,6 +787,7 @@ html:not([data-frame="1"]) .explore-sheet {
     display: flex;
     flex-direction: column;
     justify-content: space-between;
+    align-items: stretch;
     gap: 24px;
     padding: 36px 32px 28px;
   }

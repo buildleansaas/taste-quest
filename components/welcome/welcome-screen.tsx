@@ -71,6 +71,7 @@ export function WelcomeScreen() {
             fitPitch
             routes={[{ coords: EXPLORE_ROUTE, color: "#b4b4f0" }]}
             orbit
+            labels={false}
           />
         </div>
         <div className="welcome-scrim" aria-hidden="true" />

@@ -72,8 +72,11 @@ export function TagRow({ tags }: { tags: TasteTag[] }) {
       setFit(Math.max(1, count));
     };
     sync();
+    // The probe resizes when web fonts swap in, the row when the sheet does.
     const observer = new ResizeObserver(sync);
     observer.observe(host);
+    observer.observe(probe);
+    void document.fonts?.ready.then(sync);
     return () => observer.disconnect();
   }, [tags]);
 
@@ -98,10 +101,9 @@ export function TagRow({ tags }: { tags: TasteTag[] }) {
 
 function Tag({ tag }: { tag: TasteTag }) {
   return (
-    <span className="chip taste" title={`${tag.name}: ${pct(tag.share)}% of why this stop fits`}>
+    <span className="chip taste" title={`Because you like ${tag.name} (${pct(tag.share)}% of the match)`}>
       <span className="dot" style={{ background: "#7a4fd6" }} />
       <span className="name">{tag.name}</span>
-      <span style={{ opacity: 0.75 }}>{pct(tag.share)}%</span>
     </span>
   );
 }
