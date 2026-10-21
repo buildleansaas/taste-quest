@@ -569,7 +569,7 @@ export function ExploreScreen() {
               setUndoWalk(null);
               setToast(null);
             }}
-            style={{ background: "none", border: 0, color: "#b4aadc", fontWeight: 600, paddingTop: 1 }}
+            style={{ background: "none", border: 0, color: "#b4aadc", fontWeight: 600, minWidth: 44, minHeight: 44, margin: "-12px -8px -12px 0", padding: "0 8px" }}
           >
             Undo
           </button>
@@ -866,11 +866,11 @@ function WalkRow({ stop }: { stop: Stop }) {
   const fresh = Boolean(stop.introduced) && !skipped && !visited;
   const mark = visited ? "✓" : skipped ? "–" : String(stop.seq);
   const bubble = visited
-    ? { background: "#3d8a5a", color: "#fff" }
+    ? { background: "var(--color-open)", color: "#fff" }
     : fresh
-      ? { background: "var(--color-flare)", color: "#fff" }
+      ? { background: "var(--color-flare-deep)", color: "#fff" }
       : skipped
-        ? { background: "var(--color-cream)", color: "var(--color-slate-dim)", boxShadow: "inset 0 0 0 1.5px var(--color-hairline)" }
+        ? { background: "var(--color-cream)", color: "var(--color-slate)", boxShadow: "inset 0 0 0 1.5px var(--color-hairline)" }
         : { background: "#fff", color: "var(--color-slate-dim)", boxShadow: "inset 0 0 0 1.5px var(--color-hairline)" };
   const time = visited ? `${pct(stop.affinity)}%` : skipped ? "skipped" : fresh ? `${stop.walkMin} min` : `+${stop.walkMin} min`;
   return (
@@ -878,10 +878,10 @@ function WalkRow({ stop }: { stop: Stop }) {
       <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, fontFamily: "var(--font-display)", flex: "none", ...bubble }}>
         {mark}
       </div>
-      <div style={{ flex: 1, fontSize: 14, fontWeight: fresh ? 600 : 500, color: skipped ? "var(--color-slate-soft)" : "var(--color-ink)", textDecoration: skipped ? "line-through" : "none" }}>
+      <div style={{ flex: 1, fontSize: 14, fontWeight: fresh ? 600 : 500, color: skipped ? "var(--color-slate-dim)" : "var(--color-ink)", textDecoration: skipped ? "line-through" : "none" }}>
         {stop.name}
         {fresh ? (
-          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: "var(--color-flare)", background: "#fa785019", padding: "2px 6px", borderRadius: 999, letterSpacing: "0.04em" }}>
+          <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: "var(--color-flare-deep)", background: "#fa785019", padding: "2px 6px", borderRadius: 999, letterSpacing: "0.04em" }}>
             NEW
           </span>
         ) : null}
