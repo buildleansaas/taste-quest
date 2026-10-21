@@ -688,6 +688,12 @@ html:not([data-frame="1"]) .explore-sheet {
 
 @media (max-width: 1023px) { .picks-tray.empty { display: none; } }
 
+.agent-steps { margin: 4px 0 8px; border-top: 1px solid var(--color-hairline); padding-top: 10px; }
+.agent-steps summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--color-accent-deep); list-style: none; min-height: 32px; display: flex; align-items: center; }
+.agent-steps summary::-webkit-details-marker { display: none; }
+.agent-steps summary::after { content: "›"; margin-left: 6px; transition: transform 0.15s var(--ease); }
+.agent-steps[open] summary::after { transform: rotate(90deg); }
+
 /* ---- Layout system ----
    < 768   phone: one column, bottom sheets.
    768+    tablet: flow screens become a centred card; map screens keep the

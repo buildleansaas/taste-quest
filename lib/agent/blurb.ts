@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { cacheGet, cacheSet, TTL } from "@/lib/cache";
 import { sha } from "@/lib/hash";
+import { budgetLeft, recordSpend } from "@/lib/agent/budget";
 import { log } from "@/lib/log";
 import type { Evidence, TasteProfile } from "@/lib/types";
 
@@ -43,8 +44,10 @@ export function guardBlurb(
   return { ok: true };
 }
 
-function gatewayReady(): boolean {
-  return Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
+export function gatewayReady(): boolean {
+  // On Vercel the gateway authenticates with the request's OIDC token (a header,
+  // not an env var), so running on Vercel is enough.
+  return Boolean(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
 }
 
 export async function explainBlurb(input: {
@@ -54,15 +57,28 @@ export async function explainBlurb(input: {
   profile: TasteProfile;
   entityId: string;
 }): Promise<string> {
+  return (await explainBlurbWithSource(input)).blurb;
+}
+
+export type BlurbSource = "model" | "cache" | "template:no-gateway" | "template:budget" | "template:guard" | "template:error";
+
+/** The blurb and where it came from, so a deploy can prove the model is reached. */
+export async function explainBlurbWithSource(input: {
+  place: string;
+  evidence: Evidence;
+  shortDescription?: string;
+  profile: TasteProfile;
+  entityId: string;
+}): Promise<{ blurb: string; source: BlurbSource; error?: string }> {
   const fallback = templateBlurb(input);
   const key = `blurb:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
   const cached = await cacheGet<string>(key);
-  if (cached) return cached;
-  if (!gatewayReady()) return fallback;
+  if (cached) return { blurb: cached, source: "cache" };
+  if (!gatewayReady()) return { blurb: fallback, source: "template:no-gateway" };
+  if (!(await budgetLeft())) return { blurb: fallback, source: "template:budget" };
 
-  // TODO(#7): replace this single-shot paragraph with the tool loop
-  // (get_context, find_candidates, build_route, explain_stop) via streamText,
-  // stopWhen stepCountIs(6), and a 20s timeout. The engine stays the source of stops.
+  // The stop page's blurb for a stop the agent didn't explain (lib/agent/planner.ts
+  // writes the plan's reasons itself); one short call, guarded like the agent's.
   const names = input.profile.entities.map((entity) => entity.name);
   const shares = input.evidence.entityShares
     .map((share) => `${share.name} ${Math.round(share.share * 100)}%`)
@@ -71,7 +87,7 @@ export async function explainBlurb(input: {
   const prompt = [
     "You are a local friend who knows the listener's taste.",
     "Write at most 2 concrete sentences about why this place fits.",
-    "Only mention this place by its exact name. Do not invent hours, prices, awards, or history.",
+    "Only mention this place by its exact name, without quotation marks. Do not invent hours, prices, awards, or history.",
     "Phrase taste as: people who love X tend to love this.",
     `Place: ${input.place}`,
     `Known description: ${input.shortDescription ?? "none"}`,
@@ -81,7 +97,7 @@ export async function explainBlurb(input: {
   ].join("\n");
 
   try {
-    const primary = process.env.AI_MODEL || "openai/gpt-5-mini";
+    const primary = process.env.AI_MODEL || "anthropic/claude-haiku-5.5";
     const fallbackModel = process.env.AI_FALLBACK_MODEL || "google/gemini-2.5-flash";
     const result = await generateText({
       model: primary,
@@ -91,16 +107,16 @@ export async function explainBlurb(input: {
         gateway: { models: [fallbackModel] },
       },
     });
+    await recordSpend(result.usage, "blurb");
     const text = result.text.trim();
     const guard = guardBlurb(text, input.place, names);
     const blurb = guard.ok && text ? text : fallback;
     if (!guard.ok) log("warn", "blurb-guard", { place: input.place, reason: guard.reason });
     await cacheSet(key, blurb, TTL.blurb, ["blurb"]);
-    return blurb;
+    return { blurb, source: guard.ok && text ? "model" : "template:guard" };
   } catch (error) {
-    log("warn", "blurb-fallback", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return fallback;
+    const message = error instanceof Error ? error.message : String(error);
+    log("warn", "blurb-fallback", { error: message });
+    return { blurb: fallback, source: "template:error", error: message.slice(0, 160) };
   }
 }

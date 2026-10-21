@@ -44,6 +44,8 @@ export type Budget = {
   shape?: ShapeMode;
   /** Dropoff for an end-near walk. */
   end?: LatLon & { label?: string };
+  /** Free text from "What's the vibe?". */
+  vibe?: string;
 };
 
 export type StartPoint = {
@@ -171,6 +173,8 @@ export type Walk = {
   returnMin?: number;
   /** Remaining time is about the walk home, so no new stops are offered. */
   headingBack?: boolean;
+  /** Set when the AI agent planned this walk: what it did, step by step. */
+  agent?: { model: string; steps: string[]; recorded?: boolean };
 };
 
 export type PlanEvent =

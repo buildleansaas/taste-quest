@@ -55,6 +55,7 @@ export function ExploreScreen() {
   const [recenter, setRecenter] = useState(0);
   const [skipping, setSkipping] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [showSteps, setShowSteps] = useState(false);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(tick);
@@ -117,6 +118,7 @@ export function ExploreScreen() {
         mode: budget.mode,
         shape: budget.shape ?? "loop",
         end: budget.end,
+        vibe: budget.vibe,
         demo: start.source === "demo",
         tz,
       }),
@@ -526,6 +528,12 @@ export function ExploreScreen() {
                   }
                 />
               </div>
+              {walk?.agent ? (
+                <details className="agent-steps">
+                  <summary>How the AI agent planned this · {walk.agent.steps.length} steps</summary>
+                  <AgentSteps agent={walk.agent} />
+                </details>
+              ) : null}
             </>
           ) : next ? (
             <NextSheet
@@ -577,6 +585,22 @@ export function ExploreScreen() {
         </div>
       ) : null}
 
+      {showSteps && walk?.agent ? (
+        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#28323c33" }} onClick={() => setShowSteps(false)}>
+          <div className="card map-menu" role="dialog" aria-label="How the AI agent planned this" onClick={(event) => event.stopPropagation()} style={{ padding: "8px 16px 16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span className="eyebrow">How the AI agent planned this</span>
+              <button className="icon-btn ghost" type="button" aria-label="Close" style={{ width: 36, height: 36 }} onClick={() => setShowSteps(false)}>
+                <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M5 5l10 10M15 5L5 15" stroke="#28323c" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <AgentSteps agent={walk.agent} />
+          </div>
+        </div>
+      ) : null}
+
       {menu ? (
         <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#28323c33" }} onClick={() => { setMenu(false); setConfirmClear(false); }}>
           <div className="card map-menu" role="dialog" aria-label="Menu" onClick={(event) => event.stopPropagation()}>
@@ -588,6 +612,7 @@ export function ExploreScreen() {
                 </svg>
               </button>
             </div>
+            {walk?.agent ? <MenuRow label="How the AI agent planned this" onClick={() => { setMenu(false); setShowSteps(true); }} /> : null}
             <MenuRow label="Edit tastes" onClick={() => router.push("/onboarding")} />
             <MenuRow label="Time and start" onClick={() => router.push("/start")} />
             {walk && !finished ? <MenuRow label="End walk" onClick={endWalk} /> : null}
@@ -690,6 +715,26 @@ function fallbackBlurb(stop: Stop): string {
   const names = stop.evidence.entityShares.slice(0, 2).map((share) => share.name);
   if (names.length === 0) return `A ${pct(stop.affinity)}% match for your taste.`;
   return `Picked for your taste in ${names.join(" and ")}.`;
+}
+
+function AgentSteps({ agent }: { agent: NonNullable<Walk["agent"]> }) {
+  return (
+    <>
+      <ol style={{ margin: "8px 0 0", padding: 0, listStyle: "none" }}>
+        {agent.steps.map((text, index) => (
+          <li key={`${index}-${text}`} style={{ display: "flex", gap: 10, padding: "6px 0", fontSize: 13, lineHeight: "19px", color: "var(--color-slate)" }}>
+            <span style={{ width: 20, height: 20, flex: "none", borderRadius: "50%", background: "var(--cat-artists-wash)", color: "var(--cat-artists)", fontSize: 11, fontWeight: 600, display: "grid", placeItems: "center" }}>
+              {index + 1}
+            </span>
+            {text}
+          </li>
+        ))}
+      </ol>
+      <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--color-slate-dim)" }}>
+        {agent.recorded ? "Replayed from a recorded run of the agent; the demo route is fixed. Plan your own walk to watch the agent pick the stops live. " : ""}Model: {agent.model.replace(/^[^/]+\//, "")}. Places, hours and taste evidence come from Qloo.
+      </p>
+    </>
+  );
 }
 
 function MenuRow({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {

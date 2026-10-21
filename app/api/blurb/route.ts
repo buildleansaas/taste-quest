@@ -1,4 +1,4 @@
-import { explainBlurb } from "@/lib/agent/blurb";
+import { explainBlurbWithSource } from "@/lib/agent/blurb";
 import { jsonError } from "@/lib/schemas";
 import { z } from "zod";
 import { profileSchema } from "@/lib/schemas";
@@ -23,7 +23,7 @@ const schema = z.object({
 export async function POST(req: Request): Promise<Response> {
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return jsonError(400, "invalid", "Missing stop.");
-  const blurb = await explainBlurb({
+  const { blurb, source, error } = await explainBlurbWithSource({
     place: parsed.data.stop.name,
     entityId: parsed.data.stop.entityId,
     evidence: parsed.data.stop.evidence,
@@ -34,5 +34,7 @@ export async function POST(req: Request): Promise<Response> {
       updatedAt: parsed.data.profile.updatedAt ?? new Date().toISOString(),
     },
   });
-  return Response.json({ blurb });
+  // The source header lets a deploy check prove the model is reached; the error
+  // text is the provider message (no keys), trimmed.
+  return Response.json({ blurb }, { headers: { "x-blurb-source": source, ...(error ? { "x-blurb-error": encodeURIComponent(error) } : {}) } });
 }

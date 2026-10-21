@@ -1,5 +1,5 @@
 import { createUIMessageStream, createUIMessageStreamResponse, type UIMessage } from "ai";
-import { buildWalk } from "@/lib/plan/build";
+import { agentWalk } from "@/lib/agent/planner";
 import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { jsonError, planSchema } from "@/lib/schemas";
 import type { Stop, Walk, WalkRoute } from "@/lib/types";
@@ -33,7 +33,7 @@ export async function POST(req: Request): Promise<Response> {
   const stream = createUIMessageStream<PlanMessage>({
     execute: async ({ writer }) => {
       try {
-        const walk = await buildWalk({
+        const walk = await agentWalk({
           profile: {
             entities: input.profile.entities,
             tags: input.profile.tags,
@@ -54,8 +54,9 @@ export async function POST(req: Request): Promise<Response> {
           demo: input.demo,
           widen: input.widen,
           tz: input.tz,
+          vibe: input.vibe,
           onStep: (text) => writer.write({ type: "data-step", data: { text } }),
-        });
+        }, { recordDemo: Boolean(input.recordDemo) && process.env.VERCEL_ENV !== "production" });
         const version = walk.versions[walk.versions.length - 1];
         if (!version || version.stops.length === 0) {
           writer.write({

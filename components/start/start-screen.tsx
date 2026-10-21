@@ -29,6 +29,8 @@ export function StartScreen() {
   const [mode, setMode] = useState<BudgetMode>("2h");
   const [pace, setPace] = useState<Pace>("easy");
   const [shape, setShape] = useState<ShapeMode>("loop");
+  const savedVibe = useQuest((s) => s.budget?.vibe);
+  const [vibe, setVibe] = useState(savedVibe ?? "");
   const [near, setNear] = useState(true);
   const [label, setLabel] = useState("Finding you…");
   const [lat, setLat] = useState<number | null>(null);
@@ -290,6 +292,19 @@ export function StartScreen() {
             </button>
           ))}
         </div>
+        <label className="eyebrow" htmlFor="vibe" style={{ display: "block", marginTop: 24, marginBottom: 10 }}>
+          What’s the vibe? <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>(optional)</span>
+        </label>
+        <label className="field">
+          <input
+            id="vibe"
+            value={vibe}
+            maxLength={140}
+            placeholder="first date, not too loud"
+            onChange={(event) => setVibe(event.target.value)}
+          />
+        </label>
+        <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--color-slate-dim)" }}>An AI agent turns this into Qloo tags and picks your stops.</p>
         {pace === "stepfree" ? (
           <p style={{ marginTop: 8, fontSize: 12, color: "var(--color-slate-dim)" }}>Step-free routes may include steps on this version.</p>
         ) : null}
@@ -313,7 +328,7 @@ export function StartScreen() {
           onClick={() => {
             if (lat == null || lon == null) return;
             const minutes = minutesFor(mode);
-            setBudget({ minutes, mode, pace, shape });
+            setBudget({ minutes, mode, pace, shape, ...(vibe.trim() ? { vibe: vibe.trim() } : {}) });
             setStart({ lat, lon, label, source, accuracyM: accuracy });
             // A new start replaces the old walk, so its line and pins never show over the new plan.
             setWalk(null);

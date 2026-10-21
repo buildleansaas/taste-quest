@@ -55,6 +55,8 @@ export default {
         await shot("ready");
         await page.getByRole("button", { name: /Continue/ }).click();
         await shot("start", { settle: 1500 });
+        await page.getByLabel(/What’s the vibe/).fill("live music, not too fancy");
+        await shot("vibe");
         await page.getByRole("button", { name: /Pick a spot|Starting at your pin/ }).click();
         await shot("picker", { settle: 1500 });
         await page.getByRole("button", { name: "Start here" }).click();

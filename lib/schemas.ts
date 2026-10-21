@@ -43,6 +43,10 @@ export const planSchema = z.object({
   demo: z.boolean().optional(),
   widen: z.boolean().optional(),
   tz: z.string().max(80).optional(),
+  /** Free text from "What's the vibe?", e.g. "first date, not too loud". */
+  vibe: z.string().trim().max(140).optional(),
+  /** Preview only: run the agent on the demo to record its steps. */
+  recordDemo: z.boolean().optional(),
 });
 
 export const rerouteSchema = z.object({

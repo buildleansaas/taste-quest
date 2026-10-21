@@ -1,4 +1,4 @@
-import { explainBlurb, templateBlurb } from "@/lib/agent/blurb";
+import { templateBlurb } from "@/lib/agent/blurb";
 import { cacheGet, cacheSet, TTL } from "@/lib/cache";
 import {
   closesWithin,
@@ -13,18 +13,20 @@ import {
   walkMinutes,
   withStability,
   type ChosenStop,
+  type Scored,
 } from "@/lib/engine/core";
 import { geohash } from "@/lib/geohash";
 import { sha } from "@/lib/hash";
-import { getQuota, placesNear, qlooConfigured, quotaMode, resolveSampleIds } from "@/lib/qloo/client";
+import { getQuota, placesNear, qlooConfigured, quotaMode, resolveSampleIds, searchTags } from "@/lib/qloo/client";
 import { formatMinutes } from "@/lib/format";
-import { DESIGN_POOL, designReroute, designWalk } from "@/lib/plan/design-walk";
+import { DEMO_AGENT_MODEL, DEMO_AGENT_STEPS, DESIGN_POOL, designReroute, designWalk } from "@/lib/plan/design-walk";
 import { demoProfile } from "@/lib/taste/curated";
 import { routeFoot, type Routed } from "@/lib/routing/osrm";
 import { demoClock, readContext } from "@/lib/weather/open-meteo";
 import type {
   BudgetMode,
   Candidate,
+  ContextSnap,
   LatLon,
   Pace,
   RerouteReason,
@@ -32,6 +34,7 @@ import type {
   StartPoint,
   Stop,
   TasteProfile,
+  TasteTag,
   Walk,
   WalkRoute,
   WalkVersion,
@@ -48,6 +51,8 @@ export type PlanInput = {
   demo?: boolean;
   widen?: boolean;
   tz?: string;
+  /** Free text from "What's the vibe?". */
+  vibe?: string;
   onStep?: (text: string) => void;
 };
 
@@ -228,50 +233,57 @@ function isDemoProfile(profile: TasteProfile): boolean {
   return key(profile) === key(demoProfile());
 }
 
-export async function buildWalk(input: PlanInput): Promise<Walk> {
-  // "Try the Austin demo" (the preset demo tastes from the Austin start) is
-  // always the scripted walk with its recorded street route, so judges see the
-  // same polished loop whatever keys are set. Someone who picked their own
-  // tastes and the Austin start still gets a live plan.
-  if (input.demo && isDemoProfile(input.profile)) {
-    input.onStep?.("Setting the demo clock to Saturday evening…");
-    input.onStep?.("Searching Qloo near you…");
-    input.onStep?.("Fitting stops to your time…");
-    input.onStep?.("Drawing the Austin sample path…");
-    return designWalk(input);
-  }
-  input.onStep?.(input.demo ? "Setting the demo clock to Saturday evening…" : "Checking the time and the weather…");
-  const context = input.demo ? demoClock() : await readContext(input.start.lat, input.start.lon, input.tz);
-  input.onStep?.("Searching Qloo near you…");
-  const loaded = await loadCandidates(input, context.weekday, Boolean(context.weather?.isRainy));
+/** What a plan is made from: the clock and weather, Qloo's pool, and the pool
+ * filtered and scored by the engine. Shared by the planner and the agent. */
+export type PlanBasis = {
+  context: ContextSnap;
+  loaded: { candidates: Candidate[]; poolKey: string; fromCache: boolean };
+  prepared: Scored[];
+};
+
+export async function readPlanContext(input: PlanInput): Promise<ContextSnap> {
+  return input.demo ? demoClock() : readContext(input.start.lat, input.start.lon, input.tz);
+}
+
+export async function gatherPlan(input: PlanInput, context: ContextSnap, extraTags: TasteTag[] = []): Promise<PlanBasis> {
+  const tags = [...input.profile.tags, ...extraTags.filter((tag) => !input.profile.tags.some((have) => have.id === tag.id))];
+  const withTags = { ...input, profile: { ...input.profile, tags } };
+  const loaded = await loadCandidates(withTags, context.weekday, Boolean(context.weather?.isRainy));
   if (qlooConfigured() && !loaded.fromCache && loaded.candidates.length === 0) {
     const mode = quotaMode((await getQuota()).remaining);
     if (mode === "demo-or-cache" && !input.demo) {
       throw Object.assign(new Error("quota"), { code: "quota" });
     }
   }
-  input.onStep?.("Fitting stops to your time…");
   const prepared = prepareCandidates(loaded.candidates, {
     departAt: departAt(input),
     weekday: context.weekday,
     pace: input.pace,
     dropIds: [],
-    userTags: input.profile.tags,
+    userTags: tags,
     rainy: Boolean(context.weather?.isRainy),
     evening: isEvening(input),
     windowMin: input.budgetMin,
   });
-  const shape = input.shape ?? "loop";
-  let chosen = selectStops(prepared, input.start, {
+  return { context, loaded, prepared };
+}
+
+export function chooseStops(input: PlanInput, basis: PlanBasis, pool: Scored[] = basis.prepared): ChosenStop[] {
+  return selectStops(pool, input.start, {
     budgetMin: input.budgetMin,
     pace: input.pace,
     mode: input.mode,
     departAt: departAt(input),
-    weekday: context.weekday,
-    shape,
+    weekday: basis.context.weekday,
+    shape: input.shape ?? "loop",
     end: input.end,
   });
-  input.onStep?.(osrmLine());
+}
+
+/** Routes the chosen stops on streets, drops one if the walk runs long, and
+ * returns the routed stops. The engine owns time and the route. */
+export async function routeChosen(input: PlanInput, chosen: ChosenStop[]): Promise<{ chosen: ChosenStop[]; routed: Routed; total: number }> {
+  const shape = input.shape ?? "loop";
   let routed = await routeThrough(input.start, chosen, input.pace, shape, input.end);
   let total = routed.walkMin + chosen.reduce((sum, stop) => sum + stop.dwellMin, 0);
   if (chosen.length > 1 && total > input.budgetMin * 1.05) {
@@ -280,9 +292,22 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
     routed = await routeThrough(input.start, chosen, input.pace, shape, input.end);
     total = routed.walkMin + chosen.reduce((sum, stop) => sum + stop.dwellMin, 0);
   }
-  const stops = toStops(chosen, routed, input, context.weekday);
+  return { chosen, routed, total };
+}
+
+export function assembleWalk(
+  input: PlanInput,
+  basis: PlanBasis,
+  routedPlan: { chosen: ChosenStop[]; routed: Routed; total: number },
+  extra: { blurbs?: Map<string, string>; agent?: Walk["agent"] } = {},
+): Walk {
+  const shape = input.shape ?? "loop";
+  const { chosen, routed, total } = routedPlan;
+  const stops = toStops(chosen, routed, input, basis.context.weekday).map((stop) =>
+    // An agent's reason keeps the engine's order note ("Go early: it closes at 6").
+    extra.blurbs?.get(stop.entityId) ? { ...stop, blurb: withOrder(extra.blurbs.get(stop.entityId)!, stop.orderNote) } : stop,
+  );
   const version = versionFrom(1, "initial", routed, stops);
-  const returnMin = closingMinutes(routed, shape, chosen.length);
   return {
     id: crypto.randomUUID(),
     status: "active",
@@ -292,21 +317,51 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
     start: input.start,
     isDemo: Boolean(input.demo),
     mock: !qlooConfigured(),
-    poolKey: loaded.poolKey,
-    pool: loaded.candidates.slice(0, 100),
+    poolKey: basis.loaded.poolKey,
+    pool: basis.loaded.candidates.slice(0, 100),
     currentVersion: 1,
     versions: [version],
     startedAt: new Date().toISOString(),
     stepsNote: input.pace === "stepfree" ? "Step-free is best-effort and may include steps." : undefined,
     shape,
     end: input.end,
-    returnMin,
+    returnMin: closingMinutes(routed, shape, chosen.length),
     headingBack: false,
     remainingMin: Math.round(Math.min(input.budgetMin, total)),
+    ...(extra.agent ? { agent: extra.agent } : {}),
   };
 }
 
-function osrmLine(): string {
+/** "What's the vibe?" without the agent: the top Qloo tags for the phrase. */
+export async function vibeTags(vibe: string | undefined, limit = 2): Promise<TasteTag[]> {
+  const phrase = vibe?.trim();
+  if (!phrase) return [];
+  const hits = await searchTags(phrase).catch(() => []);
+  return hits.slice(0, limit).map((hit) => ({ id: hit.id, name: hit.name, cat: "vibe" as const }));
+}
+
+export async function buildWalk(input: PlanInput): Promise<Walk> {
+  // "Try the Austin demo" (the preset demo tastes from the Austin start) is
+  // always the scripted walk with its recorded street route, so judges see the
+  // same polished loop whatever keys are set. Someone who picked their own
+  // tastes and the Austin start still gets a live plan.
+  if (input.demo && isDemoProfile(input.profile)) {
+    for (const step of DEMO_AGENT_STEPS) input.onStep?.(step);
+    return { ...designWalk(input), agent: { model: DEMO_AGENT_MODEL, steps: DEMO_AGENT_STEPS, recorded: true } };
+  }
+  input.onStep?.(input.demo ? "Setting the demo clock to Saturday evening…" : "Checking the time and the weather…");
+  const context = await readPlanContext(input);
+  const extra = await vibeTags(input.vibe);
+  if (extra.length) input.onStep?.(`Turned your vibe into Qloo tags: ${extra.map((tag) => tag.name).join(", ")}`);
+  input.onStep?.("Searching Qloo near you…");
+  const basis = await gatherPlan(input, context, extra);
+  input.onStep?.("Fitting stops to your time…");
+  const chosen = chooseStops(input, basis);
+  input.onStep?.(osrmLine());
+  return assembleWalk(input, basis, await routeChosen(input, chosen));
+}
+
+export function osrmLine(): string {
   return process.env.OSRM_BASE_URL?.trim()
     ? "Drawing the walking path…"
     : "Drawing an approximate path (no router configured)…";
@@ -522,28 +577,6 @@ function matchPhrase(affinity: number): string {
   const pct = Math.round(affinity * 100);
   const article = pct === 8 || pct === 11 || pct === 18 || (pct >= 80 && pct < 90) ? "an" : "a";
   return `${article} ${pct}% match`;
-}
-
-export async function maybeLlmBlurb(walk: Walk, profile: TasteProfile): Promise<Walk> {
-  const version = walk.versions[walk.versions.length - 1];
-  if (!version) return walk;
-  if (!process.env.VERCEL_OIDC_TOKEN && !process.env.AI_GATEWAY_API_KEY) return walk;
-  const stops = await Promise.all(
-    version.stops.map(async (stop) => ({
-      ...stop,
-      blurb: withOrder(
-        await explainBlurb({
-          place: stop.name,
-          evidence: stop.evidence,
-          profile,
-          entityId: stop.entityId,
-        }),
-        stop.orderNote,
-      ),
-    })),
-  );
-  const versions = walk.versions.slice(0, -1).concat({ ...version, stops });
-  return { ...walk, versions };
 }
 
 function withOrder(blurb: string, note?: string): string {
