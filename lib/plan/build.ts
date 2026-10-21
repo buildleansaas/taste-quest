@@ -352,8 +352,9 @@ export async function buildWalk(input: PlanInput): Promise<Walk> {
   input.onStep?.(input.demo ? "Setting the demo clock to Saturday evening…" : "Checking the time and the weather…");
   const context = await readPlanContext(input);
   const extra = await vibeTags(input.vibe);
-  if (extra.length) input.onStep?.(`Turned your vibe into Qloo tags: ${extra.map((tag) => tag.name).join(", ")}`);
-  input.onStep?.("Searching Qloo near you…");
+  const source = qlooConfigured() ? "Qloo" : "the sample places";
+  if (extra.length) input.onStep?.(`Turned your vibe into ${qlooConfigured() ? "Qloo" : "sample"} tags: ${extra.map((tag) => tag.name).join(", ")}`);
+  input.onStep?.(`Searching ${source} near you…`);
   const basis = await gatherPlan(input, context, extra);
   input.onStep?.("Fitting stops to your time…");
   const chosen = chooseStops(input, basis);

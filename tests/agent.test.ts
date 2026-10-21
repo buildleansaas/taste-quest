@@ -214,3 +214,31 @@ describe("agent planner, more", () => {
     expect(walk.versions[0]!.stops[0]!.blurb).toMatch(/^People who love Live music/);
   });
 });
+
+describe("agent spend stays bounded", () => {
+  it("a run that floods tool calls stops at its hold", async () => {
+    vi.resetModules();
+    process.env.AI_BUDGET_KEY_SUFFIX = `:${Math.random()}`;
+    const { agentWalk: fresh } = await import("@/lib/agent/planner");
+    const { spentToday } = await import("@/lib/agent/budget");
+    let calls = 0;
+    const flood = new MockLanguageModelV4({
+      doGenerate: async () => {
+        calls += 1;
+        return {
+          content: Array.from({ length: 30 }, (_, i) => ({ type: "tool-call" as const, toolCallId: `f${calls}-${i}`, toolName: "find_places", input: "{}" })),
+          finishReason: { unified: "tool-calls" as const, raw: "tool_use" },
+          // Each step reports a big prompt, as a flood of repeated results would.
+          usage: { inputTokens: { total: 40_000, noCache: 40_000, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 400, text: 400, reasoning: 0 } },
+          warnings: [],
+        };
+      },
+    });
+    await fresh(input([]), { model: flood });
+    // Hold: 60k in + 4k out at Flash prices = $0.028. Each step here costs $0.013,
+    // so the run stops after the step that passes the hold (the 3rd), not at 8.
+    expect(calls).toBe(3);
+    expect(await spentToday()).toBeLessThanOrEqual(0.028 + 0.013 + 1e-9);
+    delete process.env.AI_BUDGET_KEY_SUFFIX;
+  });
+});

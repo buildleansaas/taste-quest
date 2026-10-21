@@ -75,7 +75,7 @@ There's **no database, no Redis, no auth provider and no routing SaaS.**
 | Auth | **None. Guest mode only.** No accounts and no cookies beyond what Next needs. An anonymous `deviceId` (UUID in localStorage) is sent only as a rate-limit and analytics hint. | Austin's call. It also removes the judges' sign-in wall. |
 | State | **In the browser:** IndexedDB via `idb-keyval` for profile, walks, walk versions and an event log. A localStorage mirror holds the active walk ID. **The server is stateless.** The client sends the profile with each request. | No DB service. Survives reloads and offline use. |
 | Server cache | **Vercel Runtime Cache** (`getCache()` from `@vercel/functions`, plus `'use cache: remote'` for pure fetchers). Regional, TTL-based, max 2 MB per item, tags for purging. | Built in, no extra service. See §3.3 for why it's enough for the throttle and quota meter. |
-| LLM | **Vercel AI SDK v5** via **AI Gateway with OIDC**. There's no `AI_GATEWAY_API_KEY` in production, because the AI SDK uses `VERCEL_OIDC_TOKEN` automatically on Vercel. Locally, `vercel env pull` brings in a short-lived OIDC token. Primary model `google/gemini-2.5-flash`, fallback `google/gemini-2.5-flash-lite`. | One account, spend controls, no keys to manage. |
+| LLM | **Vercel AI SDK v7** via **AI Gateway with OIDC**. There's no `AI_GATEWAY_API_KEY` in production: on Vercel the gateway authenticates with the request's OIDC token (a header, not an env var; checking `VERCEL_OIDC_TOKEN` in code was the bug fixed in #30). Locally, `vercel env pull` brings in a short-lived OIDC token. Primary model `google/gemini-2.5-flash`, fallback `google/gemini-2.5-flash-lite`. | One account, spend controls, no keys to manage. |
 | Weather | **Open-Meteo** (keyless, non-commercial tier, which fits a hackathon) | Indoor swaps when it rains. |
 | PWA | `app/manifest.ts` + Serwist service worker | Install prompt and offline mid-walk. |
 | Testing | Vitest (engine, Qloo client with synthetic fixtures), Playwright (mobile e2e on the demo), Lighthouse | — |
@@ -404,10 +404,10 @@ The engine is deterministic. The agent orchestrates it and explains it. It never
   - Evidence chips are rendered **from data, not from LLM text**: `entityShares` sorted descending, top 3, as "Because you like {name} · {share%}".
   - The paragraph is the only free text, and it gets checked.
   - **Hallucination guard:** after generation, extract proper nouns and quoted names. Every place name must equal a tool-returned `name`, and every "because" entity must be in the profile. If either check fails, regenerate once, then use the template: "People who love {top entity} and {top tag} tend to love {place}. {short_description first clause}".
-- **Cost per plan** (gpt-5-mini via Gateway, at about $0.25/M input and $2/M output; confirm on the Gateway pricing page):
-  - Tokens: about 6k input (tools plus results, trimmed) and 1.2k output → about **$0.004 per plan**, and about $0.0005 per re-route toast.
+- **Cost per plan** (updated 2026-10-21; Gemini 2.5 Flash on the Gateway free tier, $0.30/M input and $2.50/M output):
+  - A live run measured about $0.003 (5 steps); each run reserves a $0.028 hold first (`lib/agent/budget.ts`).
   - Qloo calls per plan: 1–3. OSRM calls: 1–2 (self-hosted, free).
-  - Budget: a $15 Gateway spend cap covers more than 3,000 plans.
+  - Budget: Austin's $10 a month. The app caps AI at $0.30 a day (best-effort); the Gateway's credit balance or spend limit is the hard backstop.
 
 ---
 

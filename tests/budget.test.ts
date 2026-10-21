@@ -75,3 +75,39 @@ describe("AI spend cap", () => {
     expect(await budget.reserve("test", [HAIKU], size)).not.toBeNull();
   });
 });
+
+describe("AI spend cap under concurrency", () => {
+  beforeEach(() => {
+    delete process.env.AI_DAILY_BUDGET_USD;
+    process.env.AI_BUDGET_KEY_SUFFIX = `:${Math.random()}`;
+  });
+
+  it("simultaneous requests can't all get a hold, and none is lost from the count", async () => {
+    const budget = await load();
+    const size = { inputTokens: 60_000, outputTokens: 4_000 };
+    const runs = await Promise.all(Array.from({ length: 12 }, () => budget.reserve("test", [FLASH], size)));
+    const granted = runs.filter(Boolean);
+    expect(granted.length).toBe(2);
+    const hold = 60_000 * 0.3e-6 + 4_000 * 2.5e-6;
+    expect(await budget.spentToday()).toBeCloseTo(2 * hold, 6);
+    await Promise.all(granted.map((run) => run!.settle(true)));
+    expect(await budget.spentToday()).toBeCloseTo(2 * hold, 6);
+  });
+
+  it("concurrent refunds and charges all land", async () => {
+    const budget = await load();
+    const [a, b] = await Promise.all([1, 2].map(() => budget.reserve("test", [FLASH], { inputTokens: 10_000, outputTokens: 0 })));
+    await Promise.all([a!.step({ inputTokens: 1_000 }), b!.step({ inputTokens: 2_000 })]);
+    await Promise.all([a!.settle(false), b!.settle(false)]);
+    expect(await budget.spentToday()).toBeCloseTo(3_000 * 0.3e-6, 9);
+  });
+
+  it("over() turns true once usage reaches the hold", async () => {
+    const budget = await load();
+    const run = await budget.reserve("test", [FLASH], { inputTokens: 1_000, outputTokens: 0 });
+    expect(run!.over()).toBe(false);
+    await run!.step({ inputTokens: 1_000 });
+    expect(run!.over()).toBe(true);
+    await run!.settle(false);
+  });
+});

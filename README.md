@@ -75,7 +75,7 @@ Real, and covered by tests or the mock-mode walk:
 - `POST /api/plan` as an AI SDK UI message stream (`data-step`, `data-stop`, `data-route`, `data-walk`)
 - Skip → `POST /api/reroute`, with an 8s undo of the previous walk version
 
-Stubbed, with TODOs in the code:
+Status of the planned issues (some still stubbed, with TODOs in the code):
 
 - `#7` Agent tool loop: done (`lib/agent/planner.ts`). Tools: read_context, add_vibe, find_places, plan_walk, explain_stops. Stops only from Qloo's results; the engine owns time and route; any failure falls back to the plain planner. The preset Austin demo replays recorded agent steps (`DEMO_AGENT_STEPS`). Spend is capped in `lib/agent/budget.ts`.
 - `#8` Automatic re-route (off-route, late, closed, weather). The trigger predicate is tested. The map watches GPS for the user dot only. Skip is manual.

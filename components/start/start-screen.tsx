@@ -208,7 +208,7 @@ export function StartScreen() {
             onChange={(event) => setVibe(event.target.value)}
           />
         </label>
-        <p style={{ margin: "6px 0 12px", fontSize: 12, color: "var(--color-slate-dim)" }}>Turned into Qloo tags that steer which places you get.</p>
+        <p style={{ margin: "6px 0 12px", fontSize: 12, color: "var(--color-slate-dim)" }}>Turned into Qloo tags that steer which places you get. The fixed Austin demo walk ignores it.</p>
         </div>
         <div>
         <div className="eyebrow" style={{ marginTop: 28, marginBottom: 10 }}>

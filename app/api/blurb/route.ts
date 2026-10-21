@@ -8,21 +8,22 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// Every field reaches the prompt, so every field has a size limit.
 const schema = z.object({
   profile: profileSchema,
   stop: z.object({
-    entityId: z.string(),
-    name: z.string(),
+    entityId: z.string().max(120),
+    name: z.string().max(160),
     evidence: z.object({
-      entityShares: z.array(z.object({ entityId: z.string(), name: z.string(), share: z.number() })),
-      tagOverlap: z.array(z.object({ id: z.string(), name: z.string() })),
+      entityShares: z.array(z.object({ entityId: z.string().max(120), name: z.string().max(160), share: z.number() })).max(10),
+      tagOverlap: z.array(z.object({ id: z.string().max(160), name: z.string().max(80) })).max(12),
     }),
-    shortDescription: z.string().optional(),
+    shortDescription: z.string().max(600).optional(),
   }),
 });
 
 export async function POST(req: Request): Promise<Response> {
-  // Each call can reach the model, so it shares the plan route's guard rails.
+  // Each call can reach the model, so it is rate-limited too (per instance and IP).
   const limit = rateLimit(clientKey(req, "blurb"), 20, 60 * 60 * 1000);
   if (!limit.ok) return jsonError(429, "rate_limited", "Too many requests.");
   const parsed = schema.safeParse(await req.json().catch(() => null));

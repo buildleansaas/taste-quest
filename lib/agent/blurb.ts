@@ -90,7 +90,7 @@ export async function explainBlurbWithSource(input: {
 
 
   // The stop page's blurb for a stop the agent didn't explain (lib/agent/planner.ts
-  // writes the plan's reasons itself); one short call, guarded like the agent's.
+  // writes the plan's reasons itself); one short call, checked by guardBlurb.
   const names = input.profile.entities.map((entity) => entity.name);
   const shares = input.evidence.entityShares
     .map((share) => `${share.name} ${Math.round(share.share * 100)}%`)
@@ -110,7 +110,8 @@ export async function explainBlurbWithSource(input: {
 
   const primary = process.env.AI_MODEL || "google/gemini-2.5-flash";
   const fallbackModel = process.env.AI_FALLBACK_MODEL || "google/gemini-2.5-flash-lite";
-  const budget = await reserve("blurb", [primary, fallbackModel], { inputTokens: 1_000, outputTokens: 160 });
+  // The hold follows the prompt's real size (about 3 characters a token, rounded up).
+  const budget = await reserve("blurb", [primary, fallbackModel], { inputTokens: Math.ceil(prompt.length / 3) + 50, outputTokens: 160 });
   if (!budget) return { blurb: fallback, source: "template:budget" };
   try {
     const result = await generateText({
