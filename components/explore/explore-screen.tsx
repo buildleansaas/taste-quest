@@ -42,7 +42,14 @@ export function ExploreScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToastState] = useState<string | null>(null);
+  const toastTimer = useRef(0);
+  // One timer for the popup, so an older popup's timer never closes a newer one.
+  const setToast = (text: string | null, ms = 0) => {
+    window.clearTimeout(toastTimer.current);
+    setToastState(text);
+    if (text && ms) toastTimer.current = window.setTimeout(() => setToastState(null), ms);
+  };
   const [undoWalk, setUndoWalk] = useState<Walk | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [recenter, setRecenter] = useState(0);
@@ -288,8 +295,7 @@ export function ExploreScreen() {
     if (!walk || !profile || !next || skipping) return;
     if (!online) {
       setUndoWalk(null);
-      setToast("You’re offline. Your route is unchanged.");
-      window.setTimeout(() => setToast(null), 5000);
+      setToast("You’re offline. Your route is unchanged.", 5000);
       return;
     }
     const previous = walk;
@@ -308,16 +314,14 @@ export function ExploreScreen() {
     if (!body?.walk) {
       setSkipping(false);
       setUndoWalk(null);
-      setToast("Couldn't update. Your route is unchanged.");
-      window.setTimeout(() => setToast(null), 5000);
+      setToast("Couldn't update. Your route is unchanged.", 5000);
       return;
     }
     setUndoWalk(previous);
     setWalk(body.walk);
     setSkipping(false);
     arrivedAt.current = Date.now();
-    setToast(body.toast);
-    window.setTimeout(() => setToast(null), 8000);
+    setToast(body.toast, 8000);
   }
 
   function arrive(entityId: string) {
@@ -331,14 +335,13 @@ export function ExploreScreen() {
   }
 
   function endWalk() {
-    if (!walk) return;
+    // A skip in flight would land after this and reopen the walk.
+    if (!walk || skipping) return;
     setMenu(false);
     setToast(null);
     setWalk(finishWalk(walk));
   }
 
-  // The popup describes a route change; once the sheet moves on to heading
-  // back or the finish, the sheet says it better, so the popup goes.
   const center: [number, number] = user ?? [-97.743, 30.267];
   // Time left is the budget minus time since the walk was planned. remainingMin
   // is the planned length, so it only stands in for the scripted design walk

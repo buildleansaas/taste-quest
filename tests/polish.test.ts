@@ -39,3 +39,10 @@ describe("review fixes", () => {
     expect(result.toast).not.toMatch(/Skipped/);
   });
 });
+
+describe("cut-off sentences", () => {
+  it("drops a cut-off sentence that starts with a digit or an accented capital", () => {
+    expect(tidyBlurb("Great spot. 3 rooftop bars and a versatile space...")).toBe("Great spot.");
+    expect(tidyBlurb("Great spot. Ótimo bar com vista...")).toBe("Great spot.");
+  });
+});

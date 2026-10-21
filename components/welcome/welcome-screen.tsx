@@ -77,7 +77,6 @@ export function WelcomeScreen() {
             routes={HERO_ROUTES}
             orbit
             labels={false}
-            fitKey="hero"
           />
         </div>
         <div className="welcome-scrim" aria-hidden="true" />
