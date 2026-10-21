@@ -301,6 +301,11 @@ export function StartScreen() {
         </div>
       </div>
       <div className="flow-dock">
+        {lat == null || lon == null ? (
+          <p style={{ margin: "0 0 10px", textAlign: "center", fontSize: 13, color: "var(--color-slate-dim)" }}>
+            {gps === "prompt" ? "Finding you…" : "Pick a start to build your route."}
+          </p>
+        ) : null}
         {contextLine ? (
           <div style={{ display: "flex", justifyContent: "center", gap: 6, fontSize: 12, color: "var(--color-slate-dim)", marginBottom: 12 }}>
             {contextLine}

@@ -24,7 +24,9 @@ export function MatchScore({ value }: { value: number }) {
 export function tidyBlurb(text: string | undefined, max = Infinity): string {
   const clean = (text ?? "").replace(/\s+/g, " ").trim();
   if (!clean) return "";
-  const sentences = clean.match(/[^.!?…]+(?:[.!?]+|…|$)/g)?.map((part) => part.trim()).filter(Boolean) ?? [clean];
+  // A sentence ends at . ! ? or … followed by a space and a capital (or the end),
+  // so "4.5 stars" and "swandiveatx.com" stay whole.
+  const sentences = clean.split(/(?<=[.!?…])\s+(?=[A-Z"“(])/).map((part) => part.trim()).filter(Boolean);
   const whole = sentences.filter((part, index) => !(index > 0 && /(\.\.\.|…)$/.test(part)));
   let out = "";
   for (const sentence of whole) {

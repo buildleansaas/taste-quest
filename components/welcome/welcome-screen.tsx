@@ -10,6 +10,11 @@ import { useQuest } from "@/store/use-quest";
 
 const TasteMap = dynamic(() => import("@/components/map/taste-map").then((mod) => mod.TasteMap), { ssr: false });
 
+// Module constants, so a re-render never hands the map new arrays and re-fits it mid-turn.
+const HERO_CENTER: [number, number] = [-97.7395, 30.2675];
+const HERO_PAD = { top: 120, bottom: 260, left: 40, right: 40 };
+const HERO_ROUTES = [{ coords: EXPLORE_ROUTE, color: "#b4b4f0" }];
+
 const STEPS = [
   { title: "Tell it what you love", body: "A few artists, films or vibes." },
   { title: "Qloo finds places that fit", body: "Each stop says why it matches you." },
@@ -61,17 +66,18 @@ export function WelcomeScreen() {
         <div className="welcome-map" aria-hidden="true">
           <TasteMap
             className="map-fill"
-            center={[-97.7395, 30.2675]}
+            center={HERO_CENTER}
             zoom={15.4}
             pitch={52}
             bearing={-18}
             frame={EXPLORE_FRAME}
-            pad={{ top: 120, bottom: 260, left: 40, right: 40 }}
+            pad={HERO_PAD}
             zoomOut={0.2}
             fitPitch
-            routes={[{ coords: EXPLORE_ROUTE, color: "#b4b4f0" }]}
+            routes={HERO_ROUTES}
             orbit
             labels={false}
+            fitKey="hero"
           />
         </div>
         <div className="welcome-scrim" aria-hidden="true" />

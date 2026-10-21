@@ -903,6 +903,7 @@ html:not([data-frame="1"]) .explore-sheet {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .welcome-map { opacity: 1; }
 }
 
 /* Hero tastes are examples, not controls: glass, no lift. */

@@ -26,3 +26,16 @@ describe("display text", () => {
     expect(second.toast).not.toMatch(/0\.\d\d/);
   });
 });
+
+describe("review fixes", () => {
+  it("keeps decimals and web addresses whole", () => {
+    expect(tidyBlurb("Rated 4.5 stars by locals. Great tacos.")).toBe("Rated 4.5 stars by locals. Great tacos.");
+    expect(tidyBlurb("Visit swandiveatx.com for tickets. Open late.", 40)).toBe("Visit swandiveatx.com for tickets.");
+  });
+
+  it("a re-plan that is not a skip never says a stop was skipped", async () => {
+    const walk = await buildWalk({ profile: demoProfile(), start: { ...DEMO_START, source: "demo" }, budgetMin: 120, pace: "easy", mode: "2h", shape: "loop", demo: true, tz: "America/Chicago" });
+    const result = await rerouteWalk({ profile: demoProfile(), walk, fix: { lat: DEMO_START.lat, lon: DEMO_START.lon }, reason: "offroute" });
+    expect(result.toast).not.toMatch(/Skipped/);
+  });
+});

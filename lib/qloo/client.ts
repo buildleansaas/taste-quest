@@ -187,9 +187,9 @@ export async function searchTaste(query: string, cat?: string): Promise<SearchHi
   const params = new URLSearchParams({ query, types, take: "5" });
   const payload = await qlooFetch("/search", params);
   // Tribute and cover acts crowd out the real artist; keep them only when asked for.
-  const wantsTribute = /tribute|cover/i.test(query);
+  const wantsTribute = /\b(tribute|cover)\b/i.test(query);
   const hits = normalizeSearch(payload)
-    .filter((hit) => wantsTribute || !/\btribute\b|\bcover band\b/i.test(`${hit.name} ${hit.subtitle ?? ""}`))
+    .filter((hit) => wantsTribute || !/\btribute\b|\bcover band\b/i.test(hit.name))
     .slice(0, 5);
   await cacheSet(cacheKey, hits, TTL.search, ["qloo", "search"]);
   return hits;

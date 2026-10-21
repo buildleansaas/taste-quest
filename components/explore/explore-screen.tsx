@@ -178,7 +178,9 @@ export function ExploreScreen() {
     if (haversineM(fix, next) > ARRIVE_M) return;
     usedFix.current = fix.at;
     arrivedAt.current = Date.now();
-    setWalk(arriveAt(walk, next.entityId));
+    const after = arriveAt(walk, next.entityId);
+    if (after.headingBack || after.status === "done") setToast(null);
+    setWalk(after);
   }, [fix, next, walk, setWalk, skipping]);
 
   // The stop page sends Skip and "I'm here" back here as ?do=skip|arrive&id=…
@@ -321,22 +323,22 @@ export function ExploreScreen() {
   function arrive(entityId: string) {
     if (!walk || skipping) return;
     arrivedAt.current = Date.now();
-    setWalk(arriveAt(walk, entityId));
+    const after = arriveAt(walk, entityId);
+    // An older route popup would cover the head-back or finish sheet; a skip's
+    // own popup (with its Undo) is left alone, since that path never runs here.
+    if (after.headingBack || after.status === "done") setToast(null);
+    setWalk(after);
   }
 
   function endWalk() {
     if (!walk) return;
     setMenu(false);
+    setToast(null);
     setWalk(finishWalk(walk));
   }
 
   // The popup describes a route change; once the sheet moves on to heading
   // back or the finish, the sheet says it better, so the popup goes.
-  const phase = walk?.status === "done" ? "done" : walk?.headingBack ? "back" : "walk";
-  useEffect(() => {
-    if (phase !== "walk") setToast(null);
-  }, [phase]);
-
   const center: [number, number] = user ?? [-97.743, 30.267];
   // Time left is the budget minus time since the walk was planned. remainingMin
   // is the planned length, so it only stands in for the scripted design walk
@@ -458,7 +460,7 @@ export function ExploreScreen() {
             <DoneSheet
               stops={stops}
               km={version?.totals?.km}
-              minutes={walk.startedAt ? Math.round(elapsedMin) : undefined}
+              minutes={walk.startedAt && elapsedMin <= walk.budgetMin * 1.5 ? Math.round(elapsedMin) : undefined}
               onAgain={() => {
                 setWalk(null);
                 router.push("/start");
@@ -574,7 +576,7 @@ export function ExploreScreen() {
 
       {menu ? (
         <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#28323c33" }} onClick={() => { setMenu(false); setConfirmClear(false); }}>
-          <div className="card map-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+          <div className="card map-menu" role="dialog" aria-label="Menu" onClick={(event) => event.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 4px 4px 12px" }}>
               <span className="eyebrow">Menu</span>
               <button className="icon-btn ghost" type="button" aria-label="Close menu" style={{ width: 36, height: 36 }} onClick={() => { setMenu(false); setConfirmClear(false); }}>
@@ -650,10 +652,11 @@ function NextSheet({
           {index} of {total}
         </span>
       </div>
-      <button type="button" className="next-head" onClick={onOpen} aria-label={`${stop.name}: details`}>
+      <button type="button" className="next-head" onClick={onOpen}>
         <span>
           <span className="display" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 24, lineHeight: "30px" }}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stop.name}</span>
+            <span className="sr-only">Details:</span>
             <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true" style={{ flex: "none", marginTop: 2 }}>
               <path d="M7.5 4l6 6-6 6" fill="none" stroke="#a0aab4" strokeWidth="2" strokeLinecap="round" />
             </svg>
@@ -688,7 +691,7 @@ function fallbackBlurb(stop: Stop): string {
 
 function MenuRow({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
   return (
-    <button type="button" role="menuitem" onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: 0, padding: "12px 12px", fontWeight: 500, borderRadius: 10, color: danger ? "var(--color-error)" : undefined }}>
+    <button type="button" onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: 0, padding: "12px 12px", fontWeight: 500, borderRadius: 10, color: danger ? "var(--color-error)" : undefined }}>
       {label}
     </button>
   );
@@ -702,9 +705,12 @@ function pinColor(stop: Stop): string {
 }
 
 function ToastText({ text }: { text: string }) {
-  const name = /Added (.+?), an? \d+% match/.exec(text)?.[1];
-  if (!name || !text.includes(name)) return text;
-  const [before, after] = text.split(name);
+  const match = /Added (.+?), an? \d+% match/.exec(text);
+  const name = match?.[1];
+  if (!match || !name) return text;
+  const at = match.index + "Added ".length;
+  const before = text.slice(0, at);
+  const after = text.slice(at + name.length);
   return (
     <>
       {before}

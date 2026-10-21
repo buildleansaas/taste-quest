@@ -487,7 +487,7 @@ export async function rerouteWalk(input: {
     headingBack,
     remainingMin: headingBack ? returnMin : Math.round(Math.min(remainingRaw || input.walk.budgetMin, plannedLeft)),
   };
-  const toast = doneNow ? "That was your last stop. Walk complete." : toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin, previous);
+  const toast = doneNow ? "That was your last stop. Walk complete." : toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin, previous, input.reason);
   return { walk, diff, toast };
 }
 
@@ -498,13 +498,17 @@ function toastFrom(
   headingBack = false,
   returnMin = 0,
   previous: Stop[] = [],
+  reason: RerouteReason = "skip",
 ): string {
   if (headingBack) return `Time to head back · ${Math.max(1, Math.round(returnMin))} min`;
   const added = stops.find((stop) => diff.added.includes(stop.entityId));
   const skipped = previous.find((stop) => stop.state === "next")
     ?? previous.find((stop) => diff.removed.includes(stop.entityId));
   const left = `${formatMinutes(remaining)} left`;
-  const skippedText = skipped ? `Skipped ${skipped.name}.` : "Skipped a stop.";
+  // Only a skip or veto removed the next stop; other re-plans just changed the route.
+  const skippedText = reason === "skip" || reason === "veto"
+    ? (skipped ? `Skipped ${skipped.name}.` : "Skipped a stop.")
+    : "Route updated.";
   if (added) return `${skippedText} Added ${added.name}, ${matchPhrase(added.affinity)}. ${left}.`;
   if (!stops.some((stop) => stop.state === "next" || stop.state === "todo")) {
     if (returnMin > 0) return `Time to head back · ${Math.max(1, Math.round(returnMin))} min`;

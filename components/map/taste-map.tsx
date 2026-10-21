@@ -166,7 +166,8 @@ export function TasteMap({
     if (orbit && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       let last = 0;
       const turn = (time: number) => {
-        if (last) map.setBearing(map.getBearing() + ((time - last) / 1000) * 2.2);
+        // A hidden tab stops the loop; it resumes on the next frame it gets.
+        if (last && !document.hidden) map.setBearing(map.getBearing() + (Math.min(100, time - last) / 1000) * 2.2);
         last = time;
         spin = window.requestAnimationFrame(turn);
       };
