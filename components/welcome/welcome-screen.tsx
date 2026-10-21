@@ -1,10 +1,25 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mark, QlooCredit } from "@/components/brand/qloo-credit";
 import { DeviceChrome } from "@/components/chrome/device-chrome";
+import { EXPLORE_FRAME, EXPLORE_ROUTE } from "@/lib/map/austin-geometry";
 import { useQuest } from "@/store/use-quest";
+
+const TasteMap = dynamic(() => import("@/components/map/taste-map").then((mod) => mod.TasteMap), { ssr: false });
+
+// Module constants, so a re-render never hands the map new arrays and re-fits it mid-turn.
+const HERO_CENTER: [number, number] = [-97.7395, 30.2675];
+const HERO_PAD = { top: 120, bottom: 260, left: 40, right: 40 };
+const HERO_ROUTES = [{ coords: EXPLORE_ROUTE, color: "#b4b4f0" }];
+
+const STEPS = [
+  { title: "Tell it what you love", body: "A few artists, films or vibes." },
+  { title: "Qloo finds places that fit", body: "Each stop says why it matches you." },
+  { title: "Walk it", body: "Skip a stop and the route re-plans around you." },
+];
 
 const CHIPS = [
   { label: "Khruangbin", color: "#7a4fd6", opacity: 1 },
@@ -48,6 +63,23 @@ export function WelcomeScreen() {
             filter: "blur(6px)",
           }}
         />
+        <div className="welcome-map" aria-hidden="true">
+          <TasteMap
+            className="map-fill"
+            center={HERO_CENTER}
+            zoom={15.4}
+            pitch={52}
+            bearing={-18}
+            frame={EXPLORE_FRAME}
+            pad={HERO_PAD}
+            zoomOut={0.2}
+            fitPitch
+            routes={HERO_ROUTES}
+            orbit
+            labels={false}
+          />
+        </div>
+        <div className="welcome-scrim" aria-hidden="true" />
         <div style={{ position: "absolute", left: 24, top: 28, display: "flex", alignItems: "center", gap: 9 }}>
           <Mark />
           <span className="display" style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.02em" }}>
@@ -78,6 +110,17 @@ export function WelcomeScreen() {
       </section>
 
       <div className="welcome-side">
+      <ol className="welcome-steps">
+        {STEPS.map((step, index) => (
+          <li key={step.title}>
+            <span className="n">{index + 1}</span>
+            <span>
+              <b>{step.title}</b>
+              <span>{step.body}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
       {storage === "memory" ? (
         <p className="banner">Your walk won’t be saved on this device.</p>
       ) : null}

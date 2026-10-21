@@ -192,10 +192,10 @@ export function normalizeSearch(payload: unknown): SearchHit[] {
     const types = Array.isArray(row?.types) ? row.types.filter((entry): entry is string => typeof entry === "string") : [];
     const type = types[0] ?? asString(row?.type) ?? "urn:entity";
     const properties = asRecord(row?.properties);
-    const subtitle =
-      asString(row?.disambiguation) ??
-      asString(properties?.short_description) ??
-      type.replace("urn:entity:", "").replaceAll("_", " ");
+    const kind = type.replace("urn:entity:", "").replaceAll("_", " ");
+    const described = asString(row?.disambiguation) ?? asString(properties?.short_description);
+    // Qloo sometimes repeats the name as the description ("Radiohead / Radiohead").
+    const subtitle = described && described.trim().toLowerCase() !== name.trim().toLowerCase() ? described : kind;
     hits.push({ id, name, type, subtitle, imageUrl: readImage(properties) });
   }
   return hits;

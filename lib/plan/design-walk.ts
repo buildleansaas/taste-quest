@@ -198,6 +198,6 @@ export function designReroute(walk: Walk): { walk: Walk; toast: string } {
   };
   return {
     walk: next,
-    toast: "Skipped Midnight Cowboy. Added Museum of the Weird, a 0.86 match on the way. Still 1h 31m.",
+    toast: "Skipped Midnight Cowboy. Added Museum of the Weird, an 86% match on the way. 1h 31m left.",
   };
 }

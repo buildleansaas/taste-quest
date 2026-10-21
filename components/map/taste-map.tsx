@@ -46,6 +46,10 @@ type Props = {
   fitKey?: string;
   onPick?: (lat: number, lon: number) => void;
   className?: string;
+  /** Slowly turns the camera (the welcome backdrop). Off under reduced motion. */
+  orbit?: boolean;
+  /** Street and place names; off for a backdrop. */
+  labels?: boolean;
 };
 
 const COLORS = {
@@ -80,6 +84,8 @@ export function TasteMap({
   fitKey,
   onPick,
   className,
+  orbit = false,
+  labels = true,
 }: Props) {
   const node = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -124,6 +130,7 @@ export function TasteMap({
       if (!map.getStyle()?.layers?.length) return;
       try {
         recolor(map);
+        if (!labels) hideLabels(map);
         paint(map, scene.current, markers, shouldFit());
       } catch (err) {
         console.warn("map paint", err);
@@ -155,7 +162,21 @@ export function TasteMap({
     };
     window.addEventListener("orientationchange", onOrient);
     mapRef.current = map;
+    let spin = 0;
+    if (orbit && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      let last = 0;
+      const turn = (time: number) => {
+        // A hidden tab stops the loop; it resumes on the next frame it gets.
+        if (last && !document.hidden) map.setBearing(map.getBearing() + (Math.min(100, time - last) / 1000) * 2.2);
+        last = time;
+        spin = window.requestAnimationFrame(turn);
+      };
+      map.once("idle", () => {
+        spin = window.requestAnimationFrame(turn);
+      });
+    }
     return () => {
+      window.cancelAnimationFrame(spin);
       observer.disconnect();
       window.removeEventListener("orientationchange", onOrient);
       map.off("style.load", apply);
@@ -193,6 +214,12 @@ function fitPad(pad: MapPad | undefined, width: number, height: number): MapPad 
     left: Math.max(8, pad.left * scale),
     right: Math.max(8, pad.right * scale),
   };
+}
+
+function hideLabels(map: maplibregl.Map) {
+  for (const layer of map.getStyle().layers ?? []) {
+    if (layer.type === "symbol") map.setLayoutProperty(layer.id, "visibility", "none");
+  }
 }
 
 function recolor(map: maplibregl.Map) {

@@ -7,6 +7,7 @@ import { DeviceChrome } from "@/components/chrome/device-chrome";
 import { useMinWidth } from "@/components/chrome/use-wide";
 import { STOP_FRAME, STOP_PAD, STOP_ZOOM_OUT } from "@/lib/map/austin-geometry";
 import { nextStop } from "@/lib/walk/progress";
+import { tidyBlurb } from "@/components/ui/taste";
 import { useQuest } from "@/store/use-quest";
 
 const TasteMap = dynamic(() => import("@/components/map/taste-map").then((mod) => mod.TasteMap), { ssr: false });
@@ -26,7 +27,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
   const profile = useQuest((s) => s.profile);
   const setWalk = useQuest((s) => s.setWalk);
   const deviceId = useQuest((s) => s.deviceId);
-  const wide = useMinWidth(768);
+  const wide = useMinWidth(1024);
 
   useEffect(() => {
     void hydrate();
@@ -79,7 +80,11 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
   }
 
   const maps = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}`;
-  const shares = stop.evidence.entityShares.slice(0, 3);
+  const shares = [...stop.evidence.entityShares].sort((a, b) => b.share - a.share).slice(0, 3);
+  const topShare = shares[0]?.share || 1;
+  const blurb = tidyBlurb(stop.blurb);
+  const week = weekHours(stop);
+  const tags = stop.evidence.tagOverlap.slice(0, 6);
   const swan = stop.entityId === "sample-place-swan-dive";
   const pins = swan
     ? version.stops
@@ -117,11 +122,6 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
               <path d="M12.5 4l-6 6 6 6" fill="none" stroke="#28323c" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
           </button>
-          <a className="icon-btn" href={maps} target="_blank" rel="noreferrer" aria-label="Open in Google Maps">
-            <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M10 16.5s-6-3.7-6-8.2A3.3 3.3 0 0 1 10 6.3a3.3 3.3 0 0 1 6 2c0 4.5-6 8.2-6 8.2z" fill="none" stroke="#28323c" strokeWidth="1.6" />
-            </svg>
-          </a>
         </div>
       </div>
       <section className="sheet stop-sheet">
@@ -155,19 +155,18 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
               )}
             </span>
             <span>{stop.walkMin} min walk</span>
-            <span>{stop.evidence.tagOverlap.slice(0, 2).map((tag) => tag.name).join(" · ") || stop.categoryLabel}</span>
           </div>
           <div className="hair" style={{ margin: "16px 0" }} />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div className="eyebrow" style={{ color: "var(--color-plum-soft)" }}>
-              Why this fits you
+            <div className="eyebrow" style={{ color: "var(--color-plum)" }}>
+              Why you’ll like it
             </div>
-            <span className="mono" style={{ fontSize: 9, letterSpacing: "0.08em" }}>
-              {single ? "Matched on your vibes" : "Qloo explainability"}
+            <span style={{ fontSize: 11, color: "var(--color-slate-dim)" }}>
+              {single ? "Matched on your vibes" : "From Qloo"}
             </span>
           </div>
-          <p className="display" style={{ marginTop: 8, fontSize: 17, lineHeight: "25px", color: "var(--color-plum)", fontWeight: 400, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {stop.blurb}
+          <p className="display" style={{ marginTop: 8, fontSize: 17, lineHeight: "25px", color: "var(--color-plum)", fontWeight: 400 }}>
+            {blurb}
           </p>
           {single ? (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
@@ -179,7 +178,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
             </div>
           ) : (
             <>
-              <div style={{ marginTop: 10, fontSize: 12, color: "var(--color-slate-dim)" }}>Because you like</div>
+              <div style={{ marginTop: 10, fontSize: 12, color: "var(--color-slate-dim)" }}>Because you like · share of the match</div>
               {shares.map((share) => {
                 const kind = profile?.entities.find((entity) => entity.id === share.entityId)?.type ?? "artist";
                 const colors = CAT[kind] ?? CAT.artist;
@@ -196,7 +195,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
                     </div>
                     <div style={{ width: 56 }}>
                       <div style={{ height: 4, borderRadius: 2, background: "var(--color-cream)" }}>
-                        <div style={{ height: "100%", width: `${Math.min(100, share.share * 360)}%`, borderRadius: 2, background: colors.bar }} />
+                        <div style={{ height: "100%", width: `${Math.round((share.share / topShare) * 100)}%`, borderRadius: 2, background: colors.bar }} />
                       </div>
                     </div>
                     <div style={{ width: 34, textAlign: "right", fontSize: 13, fontWeight: 600, color: colors.text }}>{Math.round(share.share * 100)}%</div>
@@ -205,6 +204,33 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
               })}
             </>
           )}
+          {!single && tags.length > 0 ? (
+            <>
+              <div className="hair" style={{ margin: "16px 0" }} />
+              <div className="eyebrow" style={{ marginBottom: 10 }}>Known for</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {tags.map((tag) => (
+                  <span key={tag.id} className="chip" style={{ height: 30, fontSize: 13, background: "var(--cat-vibes-wash)", color: "var(--cat-vibes)", boxShadow: "none" }}>
+                    {tag.name}
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : null}
+          {week.length > 0 ? (
+            <>
+              <div className="hair" style={{ margin: "16px 0" }} />
+              <div className="eyebrow" style={{ marginBottom: 8 }}>Hours</div>
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 16px", fontSize: 13 }}>
+                {week.map((row) => (
+                  <div key={row.day} style={{ display: "contents", fontWeight: row.today ? 600 : 400, color: row.today ? "var(--color-ink)" : "var(--color-slate)" }}>
+                    <span>{row.day}</span>
+                    <span>{row.text}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
         <div className="stop-actions">
           {isNext ? (
@@ -262,12 +288,33 @@ function closesLabel(stop: { hours?: Record<string, { opens: string; closes: str
   return minute ? `${hour}:${String(minute).padStart(2, "0")}${suffix}` : `${hour}${suffix}`;
 }
 
+function weekHours(stop: { hours?: Record<string, { opens: string; closes: string }[]> }) {
+  if (!stop.hours || Object.keys(stop.hours).length === 0) return [];
+  const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  const today = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][new Date().getDay()];
+  return days.map((day) => {
+    const spans = stop.hours?.[day] ?? [];
+    const text = spans.length ? spans.map((span) => `${clock(span.opens)}–${clock(span.closes)}`).join(", ") : "Closed";
+    return { day: day.slice(0, 1).toUpperCase() + day.slice(1, 3), text, today: day === today };
+  });
+}
+
+function clock(value: string): string {
+  const match = /(\d{2}):(\d{2})/.exec(value);
+  if (!match) return value;
+  let hour = Number(match[1]);
+  const minute = Number(match[2]);
+  const suffix = hour >= 12 && hour < 24 ? "pm" : "am";
+  hour = hour % 12 || 12;
+  return minute ? `${hour}:${String(minute).padStart(2, "0")}${suffix}` : `${hour}${suffix}`;
+}
+
 function MatchRing({ value }: { value: number }) {
   const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
   return (
-    <div style={{ width: 64, height: 64, borderRadius: "50%", background: `conic-gradient(var(--color-accent) 0 ${pct}%, var(--color-cream) ${pct}% 100%)`, display: "grid", placeItems: "center", flex: "none" }}>
+    <div style={{ width: 64, height: 64, borderRadius: "50%", background: `conic-gradient(var(--color-accent-deep) 0 ${pct}%, var(--color-cream) ${pct}% 100%)`, display: "grid", placeItems: "center", flex: "none" }}>
       <div style={{ width: 52, height: 52, borderRadius: "50%", background: "var(--color-surface-raised)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-        <span className="display" style={{ fontSize: 17, fontWeight: 600, lineHeight: "18px" }}>{value.toFixed(2)}</span>
+        <span className="display" style={{ fontSize: 17, fontWeight: 600, lineHeight: "18px" }}>{pct}%</span>
         <span style={{ fontSize: 9, color: "var(--color-slate-dim)" }}>match</span>
       </div>
     </div>
