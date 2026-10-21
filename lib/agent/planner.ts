@@ -224,6 +224,9 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
     `Time: ${input.budgetMin} minutes, ${input.pace} pace, ${input.shape ?? "loop"}.`,
   ].join("\n");
 
+  // Set once the model loop ends; after that an error is ours, not the model's,
+  // so the catch falls back to the plain planner instead of reusing the plan.
+  let loopDone = false;
   try {
     step("Reading your tastes…");
     const result = await generateText({
@@ -245,6 +248,7 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
       onStepFinish: (stepResult) => budget.step(stepResult.usage),
       ...(opts.model ? {} : { providerOptions: modelOptions(FALLBACK_MODEL) }),
     });
+    loopDone = true;
     await budget.settle(false);
     if (!state.basis || !state.plan) throw new Error("agent stopped without a plan");
     return assembleWalk(input, state.basis, state.plan, {
@@ -256,7 +260,7 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
     await budget.settle(true);
     // The agent got as far as a plan (the error came while writing reasons):
     // keep its plan; stops without a reason keep the template text.
-    if (state.basis && state.plan) {
+    if (!loopDone && state.basis && state.plan) {
       log("warn", "agent-partial", { error: error instanceof Error ? error.message : String(error), steps: state.steps.length });
       return assembleWalk(input, state.basis, state.plan, { blurbs: state.reasons, agent: { model: AGENT_MODEL, steps: state.steps } });
     }

@@ -79,5 +79,9 @@ describe("vibe tag matching", () => {
     expect(vibeMatches("live music", hits).map((hit) => hit.id)).toEqual(["1"]);
     expect(vibeMatches("not too fancy", hits).map((hit) => hit.id)).toEqual(["5"]);
     expect(vibeMatches("rooftops", [{ id: "r", name: "Rooftop" }]).map((hit) => hit.id)).toEqual(["r"]);
+    expect(vibeMatches("dive bar", [{ id: "d", name: "Dive Bars" }]).map((hit) => hit.id)).toEqual(["d"]);
+    // A shared prefix is not a match.
+    expect(vibeMatches("not too fancy", [{ id: "f", name: "Fan Favorite" }])).toEqual([]);
+    expect(vibeMatches("bar", [{ id: "b", name: "Barbecue" }])).toEqual([]);
   });
 });

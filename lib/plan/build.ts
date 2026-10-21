@@ -345,7 +345,9 @@ export function vibeMatches<T extends { name: string }>(phrase: string, hits: T[
   return hits.filter((hit) => {
     const name = hit.name.trim().toLowerCase();
     if (seen.has(name) || hit.name.split(/\s+/).length > 4) return false;
-    if (!words(hit.name).some((word) => wanted.has(word) || [...wanted].some((want) => word.startsWith(want) || want.startsWith(word)))) return false;
+    // Same word, or the same word in the plural ("rooftops"/"Rooftop", "dive bar"/"Dive Bars").
+    const same = (a: string, b: string) => a === b || a === `${b}s` || a === `${b}es` || b === `${a}s` || b === `${a}es`;
+    if (!words(hit.name).some((word) => [...wanted].some((want) => same(word, want)))) return false;
     seen.add(name);
     return true;
   });
