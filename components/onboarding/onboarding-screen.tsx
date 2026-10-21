@@ -280,7 +280,7 @@ export function OnboardingScreen() {
                   onClick={() => setEntities((current) => current.filter((item) => item.id !== entity.id))}
                 >
                   {entity.name}
-                  <span aria-hidden="true" style={{ marginLeft: 2, opacity: 0.6 }}>×</span>
+                  <span aria-hidden="true" style={{ marginLeft: 2 }}>×</span>
                 </button>
               ))}
               {tags.map((tag) => (
@@ -293,7 +293,7 @@ export function OnboardingScreen() {
                   onClick={() => setTags((current) => current.filter((item) => item.id !== tag.id))}
                 >
                   {tag.name}
-                  <span aria-hidden="true" style={{ marginLeft: 2, opacity: 0.6 }}>×</span>
+                  <span aria-hidden="true" style={{ marginLeft: 2 }}>×</span>
                 </button>
               ))}
             </div>

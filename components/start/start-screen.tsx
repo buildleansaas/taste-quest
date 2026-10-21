@@ -217,16 +217,11 @@ export function StartScreen() {
                 if (gps === "denied") return;
                 setNear((value) => !value);
               }}
-              style={{
-                width: 44,
-                height: 26,
-                borderRadius: 13,
-                border: 0,
-                background: near ? "var(--color-accent)" : "var(--color-cream)",
-                position: "relative",
-              }}
+              style={{ width: 52, height: 44, border: 0, padding: 0, background: "transparent", display: "grid", placeItems: "center", margin: "-9px -4px" }}
             >
-              <span style={{ position: "absolute", top: 3, left: near ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "var(--shadow-control-sm)" }} />
+              <span style={{ width: 44, height: 26, borderRadius: 13, background: near ? "var(--color-accent-deep)" : "var(--color-cream)", position: "relative", display: "block" }}>
+                <span style={{ position: "absolute", top: 3, left: near ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "var(--shadow-control-sm)" }} />
+              </span>
             </button>
           </div>
           <div className="hair" style={{ marginLeft: 64 }} />
