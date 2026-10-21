@@ -153,6 +153,7 @@ export function StartScreen() {
           </button>
         </div>
         </div>
+        <div>
         <div className="budget-grid">
           {CARDS.map((card) => {
             const on = mode === card.mode;
@@ -195,6 +196,20 @@ export function StartScreen() {
           })}
         </div>
         {tonightNote && mode === "tonight" ? <p className="banner">{tonightNote}</p> : null}
+        <label className="eyebrow" htmlFor="vibe" style={{ display: "block", marginTop: 24, marginBottom: 10 }}>
+          What’s the vibe? <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>(optional)</span>
+        </label>
+        <label className="field">
+          <input
+            id="vibe"
+            value={vibe}
+            maxLength={140}
+            placeholder="first date, not too loud"
+            onChange={(event) => setVibe(event.target.value)}
+          />
+        </label>
+        <p style={{ margin: "6px 0 12px", fontSize: 12, color: "var(--color-slate-dim)" }}>Turned into Qloo tags that steer which places you get.</p>
+        </div>
         <div>
         <div className="eyebrow" style={{ marginTop: 28, marginBottom: 10 }}>
           Start from
@@ -292,19 +307,7 @@ export function StartScreen() {
             </button>
           ))}
         </div>
-        <label className="eyebrow" htmlFor="vibe" style={{ display: "block", marginTop: 24, marginBottom: 10 }}>
-          What’s the vibe? <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 500 }}>(optional)</span>
-        </label>
-        <label className="field">
-          <input
-            id="vibe"
-            value={vibe}
-            maxLength={140}
-            placeholder="first date, not too loud"
-            onChange={(event) => setVibe(event.target.value)}
-          />
-        </label>
-        <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--color-slate-dim)" }}>An AI agent turns this into Qloo tags and picks your stops.</p>
+
         {pace === "stepfree" ? (
           <p style={{ marginTop: 8, fontSize: 12, color: "var(--color-slate-dim)" }}>Step-free routes may include steps on this version.</p>
         ) : null}

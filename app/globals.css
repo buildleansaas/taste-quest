@@ -426,6 +426,8 @@ html[data-frame="1"] .home-ind { display: block; }
   font-size: 15px;
 }
 .field input::placeholder { color: var(--color-slate-soft); }
+/* A focused field scrolls clear of a sticky bottom dock (Build, Continue). */
+.flow .field input { scroll-margin-bottom: 180px; }
 .skel {
   height: 14px;
   border-radius: 7px;

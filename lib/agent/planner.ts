@@ -1,7 +1,7 @@
 import { generateText, isStepCount, tool, type LanguageModel } from "ai";
 import { z } from "zod";
-import { gatewayReady, guardBlurb } from "@/lib/agent/blurb";
-import { budgetLeft, recordSpend } from "@/lib/agent/budget";
+import { gatewayReady, guardBlurb, modelOptions } from "@/lib/agent/blurb";
+import { reserve } from "@/lib/agent/budget";
 import type { ChosenStop, Scored } from "@/lib/engine/core";
 import { log } from "@/lib/log";
 import {
@@ -9,6 +9,7 @@ import {
   buildWalk,
   chooseStops,
   gatherPlan,
+  isDemoProfile,
   osrmLine,
   readPlanContext,
   routeChosen,
@@ -16,13 +17,22 @@ import {
   type PlanBasis,
   type PlanInput,
 } from "@/lib/plan/build";
-import { searchTags } from "@/lib/qloo/client";
+import { qlooConfigured, searchTags } from "@/lib/qloo/client";
 import type { ContextSnap, TasteTag, Walk } from "@/lib/types";
 
-export const AGENT_MODEL = process.env.AI_MODEL || "anthropic/claude-haiku-5.5";
-const FALLBACK_MODEL = process.env.AI_FALLBACK_MODEL || "google/gemini-2.5-flash";
+export const AGENT_MODEL = process.env.AI_MODEL || "google/gemini-2.5-flash";
+// The team's AI Gateway is on the free tier, which serves Google's models but
+// not Anthropic's (checked 2026-10-21 with /api/ai-probe). With paid credits,
+// set AI_MODEL=anthropic/claude-haiku-5.5 (priced in lib/agent/budget.ts).
+const FALLBACK_MODEL = process.env.AI_FALLBACK_MODEL || "google/gemini-2.5-flash-lite";
 const MAX_STEPS = 8;
-const TIMEOUT_MS = 25_000;
+/** Leaves the fallback planner time inside the route's 60 s limit. */
+const TIMEOUT_MS = 20_000;
+const STEP_OUTPUT_TOKENS = 500;
+/** What one run can cost at most: every step at its output cap, the prompt growing each step. */
+const WORST_CASE = { inputTokens: 60_000, outputTokens: MAX_STEPS * STEP_OUTPUT_TOKENS };
+/** Words in a reason that state facts Qloo didn't give the model (hours, prices). */
+const INVENTED_FACTS = /\$|€|£|\b\d{1,2}(:\d{2})?\s?(am|pm)\b|\b(open|opens|closes|till|until)\s+(late|\d)|\b24\s?(hours|\/7)|\bfree\b|\bcheap\b|\bprice|\bcover charge/i;
 /** At most this many vibe lookups (each one Qloo call) per plan. */
 const MAX_VIBE_LOOKUPS = 2;
 
@@ -30,8 +40,9 @@ const SYSTEM = [
   "You plan a short city walk for one person, using Qloo's taste data through tools.",
   "Work in this order: read_context, then add_vibe for each distinct idea in the walker's vibe (skip if there is no vibe), then find_places, then plan_walk, then explain_stops, then stop.",
   "Only choose places that find_places returned, by their id. Never invent a place, hours, prices or history.",
-  "plan_walk owns timing and the route: if it says the walk is full, accept it.",
-  "Use include to keep the best matches for the vibe and exclude to drop places that clash with it (for example loud bars for 'quiet').",
+  "plan_walk owns timing and the route; accept the stops it returns.",
+  "Use include (up to 3 ids) to favour the best matches for the vibe and exclude (up to 10) to drop places that clash with it (for example loud bars for 'quiet').",
+  "add_vibe can be called at most twice.",
   "In explain_stops, write two plain sentences per stop. First: 'People who love <one of the walker's tastes from its evidence> tend to love <the place's exact name>.' Second: one concrete thing about it from its kind or Qloo tags (for example 'A blues club with live music most nights').",
   "Name only the place itself and the walker's own tastes. No quotes, no other venues, no emojis.",
 ].join("\n");
@@ -41,8 +52,11 @@ type AgentState = {
   extraTags: TasteTag[];
   vibeLookups: number;
   basis?: PlanBasis;
+  /** The in-flight pool load, so a timeout's fallback reuses it, not a second Qloo load. */
+  loading?: Promise<PlanBasis>;
   plan?: { chosen: ChosenStop[]; routed: Awaited<ReturnType<typeof routeChosen>>["routed"]; total: number };
   reasons: Map<string, string>;
+  explainCalls: number;
   steps: string[];
 };
 
@@ -65,21 +79,28 @@ function summarize(cand: Scored) {
 /**
  * The agent planner (#7). A model drives Qloo through tools; the engine still
  * owns which places are eligible, timing and the street route, so the agent
- * can only choose among Qloo's results and never break the time budget. Any
- * failure (no gateway, the daily budget spent, a model error, a timeout, no
- * plan) falls back to buildWalk, so the app is never worse than before.
+ * can only choose among Qloo's results and never break the time budget. The
+ * preset Austin demo never calls it (that walk is scripted). Any failure (no
+ * gateway, the daily budget spent, a model error, a timeout, no plan) falls
+ * back to the planner as it was before the agent, so the app is never worse.
  */
-export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel; recordDemo?: boolean } = {}): Promise<Walk> {
+export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel; recordDemo?: boolean; timeoutMs?: number } = {}): Promise<Walk> {
   // A model passed in (tests) skips the gateway check, never the budget.
   // recordDemo runs the agent on the demo's clock and tastes, to capture the
   // steps the Austin demo replays (DEMO_AGENT_STEPS); it's off in production.
-  if ((input.demo && !opts.recordDemo) || (!opts.model && !gatewayReady()) || !(await budgetLeft())) return buildWalk(input);
-  const state: AgentState = { extraTags: [], vibeLookups: 0, reasons: new Map(), steps: [] };
+  // Only the preset demo tastes are the scripted demo; your own tastes from the
+  // demo start get the agent too (on the demo's Saturday-evening clock).
+  if ((input.demo && isDemoProfile(input.profile) && !opts.recordDemo) || (!opts.model && !gatewayReady())) return buildWalk(input);
+  const budget = await reserve("agent-plan", [AGENT_MODEL, FALLBACK_MODEL], WORST_CASE);
+  if (!budget) return buildWalk(input);
+  const state: AgentState = { extraTags: [], vibeLookups: 0, reasons: new Map(), explainCalls: 0, steps: [] };
   const step = (text: string) => {
     state.steps.push(text);
     input.onStep?.(text);
   };
   const names = input.profile.entities.map((entity) => entity.name);
+  // A reason may credit any of the walker's tastes: artists and films, or tags like "Live music".
+  const tasteNames = [...names, ...input.profile.tags.map((tag) => tag.name)];
 
   const tools = {
     read_context: tool({
@@ -93,17 +114,20 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
       },
     }),
     add_vibe: tool({
-      description: "Turn one idea from the walker's vibe (e.g. 'quiet', 'rooftop', 'cheap eats') into Qloo place tags that steer the search.",
+      description: "Turn one idea from the walker's vibe (e.g. 'quiet', 'rooftop', 'late-night food') into Qloo place tags that steer the search. At most 2 calls, before find_places.",
       inputSchema: z.object({ phrase: z.string().min(2).max(40) }),
       execute: async ({ phrase }) => {
         if (state.vibeLookups >= MAX_VIBE_LOOKUPS) return { added: [], note: "Vibe lookups used up; go on to find_places." };
+        // The pool is fixed once loaded; a late vibe can't change it, so it isn't shown as a step.
+        if (state.basis || state.loading) return { added: [], note: "Places are already loaded; call add_vibe before find_places." };
         state.vibeLookups += 1;
         const hits = (await searchTags(phrase).catch(() => [])).slice(0, 2);
         const added = hits
           .filter((hit) => !state.extraTags.some((tag) => tag.id === hit.id))
           .map((hit) => ({ id: hit.id, name: hit.name, cat: "vibe" as const }));
         state.extraTags.push(...added);
-        step(added.length ? `Asked Qloo what “${phrase}” means for places: ${added.map((tag) => tag.name).join(", ")}` : `Qloo had no place tags for “${phrase}”`);
+        const who = qlooConfigured() ? "Qloo" : "the sample tags";
+        step(added.length ? `Asked ${who} what “${phrase}” means for places: ${added.map((tag) => tag.name).join(", ")}` : `${qlooConfigured() ? "Qloo" : "The sample tags"} had no place tags for “${phrase}”`);
         return { added: added.map((tag) => tag.name) };
       },
     }),
@@ -113,17 +137,20 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
       execute: async () => {
         if (!state.basis) {
           state.context ??= await readPlanContext(input);
-          state.basis = await gatherPlan(input, state.context, state.extraTags);
+          state.loading ??= gatherPlan(input, state.context, state.extraTags);
+          state.basis = await state.loading;
           const top = [...state.basis.prepared].sort((a, b) => b.baseScore - a.baseScore);
           const lead = names.slice(0, 2).join(" and ") || "your tastes";
-          step(`Asked Qloo for places ${lead} fans love nearby: ${state.basis.loaded.candidates.length} found, ${top.length} open and walkable`);
+          // Say which data answered: Qloo, or the built-in sample places when no key is set.
+          const source = qlooConfigured() ? `Asked Qloo for places ${lead} fans love nearby` : `Searched the sample Austin places for ${lead} fans (no Qloo key here)`;
+          step(`${source}: ${state.basis.loaded.candidates.length} found, ${top.length} open and walkable`);
         }
         const top = [...state.basis.prepared].sort((a, b) => b.baseScore - a.baseScore).slice(0, 15);
         return { places: top.map(summarize) };
       },
     }),
     plan_walk: tool({
-      description: "Fit stops into the walker's time and route them on real streets. Optionally include up to 3 place ids to favour and exclude ids to drop. Returns the stops in order and the minutes used.",
+      description: "Fit stops into the walker's time and route them on real streets. Optionally favour up to 3 place ids (include) and drop up to 10 (exclude). Returns the stops in order and the minutes used.",
       inputSchema: z.object({
         include: z.array(z.string()).max(3).optional(),
         exclude: z.array(z.string()).max(10).optional(),
@@ -159,17 +186,24 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
       execute: async ({ reasons }) => {
         if (!state.plan) return { error: "Call plan_walk first." };
         const planned = new Map(state.plan.chosen.map((stop) => [stop.entityId, stop.name]));
-        let kept = 0;
+        const rejected: { id: string; reason: string }[] = [];
         for (const reason of reasons) {
           const place = planned.get(reason.id);
-          if (!place) continue;
+          if (!place) {
+            rejected.push({ id: reason.id, reason: "not a planned stop" });
+            continue;
+          }
           const why = reason.why.replace(/\s+/g, " ").trim();
-          if (!guardBlurb(why, place, names).ok) continue;
-          state.reasons.set(reason.id, why);
-          kept += 1;
+          const guard = guardBlurb(why, place, tasteNames);
+          if (!guard.ok) rejected.push({ id: reason.id, reason: guard.reason === "quoted-name" ? "no quotation marks or other place names" : "name one of the walker's tastes" });
+          else if (INVENTED_FACTS.test(why)) rejected.push({ id: reason.id, reason: "no hours, prices or 'free'" });
+          else state.reasons.set(reason.id, why);
         }
-        step(`Wrote why each stop fits you, from Qloo's evidence (${kept} of ${planned.size})`);
-        return { kept, of: planned.size };
+        const kept = [...planned.keys()].filter((id) => state.reasons.has(id)).length;
+        if (!rejected.length || state.explainCalls >= 1) step(`Wrote why each stop fits you, from Qloo's evidence (${kept} of ${planned.size})`);
+        state.explainCalls += 1;
+        // Rejected reasons go back to the model, so it can rewrite them once.
+        return { kept, of: planned.size, rejected };
       },
     }),
   };
@@ -189,23 +223,28 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
       prompt,
       tools,
       stopWhen: isStepCount(MAX_STEPS),
-      maxOutputTokens: 1200,
-      abortSignal: AbortSignal.timeout(TIMEOUT_MS),
-      ...(opts.model ? {} : { providerOptions: { gateway: { models: [FALLBACK_MODEL] } } }),
+      maxOutputTokens: STEP_OUTPUT_TOKENS,
+      maxRetries: 1,
+      abortSignal: AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS),
+      // Each step is charged as it finishes, so a later error or timeout can't hide spend.
+      onStepFinish: (stepResult) => budget.step(stepResult.usage),
+      ...(opts.model ? {} : { providerOptions: modelOptions(FALLBACK_MODEL) }),
     });
-    await recordSpend(result.totalUsage, "agent-plan");
+    await budget.settle(false);
     if (!state.basis || !state.plan) throw new Error("agent stopped without a plan");
     return assembleWalk(input, state.basis, state.plan, {
       blurbs: state.reasons,
-      agent: { model: AGENT_MODEL, steps: state.steps },
+      // The model that answered (the gateway may have used the fallback).
+      agent: { model: result.response?.modelId || AGENT_MODEL, steps: state.steps },
     });
   } catch (error) {
+    await budget.settle(true);
     log("warn", "agent-fallback", { error: error instanceof Error ? error.message : String(error), steps: state.steps.length });
     // The deterministic planner, with the vibe tags the agent already found (or looks them up itself).
     input.onStep?.("Finishing the plan without the agent…");
     const extra = state.extraTags.length ? state.extraTags : await vibeTags(input.vibe);
     const context = state.context ?? (await readPlanContext(input));
-    const basis = state.basis ?? (await gatherPlan(input, context, extra));
+    const basis = state.basis ?? (await (state.loading ?? gatherPlan(input, context, extra)));
     return assembleWalk(input, basis, await routeChosen(input, chooseStops(input, basis)));
   }
 }

@@ -204,16 +204,18 @@ export function designReroute(walk: Walk): { walk: Walk; toast: string } {
 
 /**
  * The Austin demo's planning steps: the first steps of a real agent run
- * (lib/agent/planner.ts, Haiku 5.5 via AI Gateway) on the demo tastes and the
- * demo clock, recorded on a preview deploy on 2026-10-21 with recordDemo. That
- * run then planned its own 2 stops; the demo instead shows the fixed 4-stop
- * Austin loop, so every judge sees the same walk, and the last line says so.
+ * (lib/agent/planner.ts, served by Gemini 2.5 Flash through AI Gateway) on the demo tastes and the
+ * demo clock, recorded on a preview deploy on 2026-10-21 with recordDemo. The
+ * preview had no Qloo key, so the search ran on the 9 built-in sample places
+ * the demo walk is made from, and step 3 says so. That run then planned its own
+ * 2 stops; the demo shows the fixed 4-stop loop instead, and the last line says
+ * so. The last line is the only one not emitted by the agent.
  * Re-record with POST /api/plan {…demo body, recordDemo: true} on a preview.
  */
-export const DEMO_AGENT_MODEL = "anthropic/claude-haiku-5.5";
+export const DEMO_AGENT_MODEL = "google/gemini-2.5-flash";
 export const DEMO_AGENT_STEPS: string[] = [
   "Reading your tastes…",
   "Checked the time and weather: Sat, Oct 24, 7:00 PM, 72°F",
-  "Asked Qloo for places Khruangbin and Tame Impala fans love nearby: 9 found, 6 open and walkable",
+  "Searched the sample Austin places for Khruangbin and Tame Impala fans (no Qloo key here): 9 found, 6 open and walkable",
   "Laid out the Austin demo loop through four of them (a fixed route, so every judge sees the same walk)",
 ];

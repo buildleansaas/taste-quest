@@ -85,6 +85,10 @@ export const rerouteSchema = z.object({
       .optional(),
     returnMin: z.number().optional(),
     headingBack: z.boolean().optional(),
+    // Kept through a re-plan, so "How the AI agent planned this" survives a skip.
+    agent: z
+      .object({ model: z.string().max(80), steps: z.array(z.string().max(300)).max(20), recorded: z.boolean().optional() })
+      .optional(),
   }),
   fix: z.object({ lat: z.number(), lon: z.number() }),
   reason: z.enum(["initial", "offroute", "skip", "veto", "late", "closed", "weather"]),

@@ -86,7 +86,7 @@ describe("agent planner", () => {
     const walk = await agentWalk(input(steps), { model });
     const stops = walk.versions[0]!.stops;
     expect(walk.agent?.steps.length).toBeGreaterThanOrEqual(5);
-    expect(steps.some((line) => line.startsWith("Asked Qloo for places"))).toBe(true);
+    expect(steps.some((line) => /^(Asked Qloo for places|Searched the sample Austin places)/.test(line))).toBe(true);
     expect(steps.some((line) => line.startsWith("Planned "))).toBe(true);
     expect(stops.length).toBeGreaterThan(0);
     expect(stops[0]!.blurb).toMatch(/^People who love Khruangbin tend to love /);
@@ -116,13 +116,44 @@ describe("agent planner", () => {
 
   it("never calls the model once the day's budget is spent", async () => {
     vi.resetModules();
-    vi.doMock("@/lib/agent/budget", () => ({ budgetLeft: async () => false, recordSpend: async () => undefined }));
+    vi.doMock("@/lib/agent/budget", () => ({ reserve: async () => null }));
     const { agentWalk: capped } = await import("@/lib/agent/planner");
     const model = scripted(() => ({ tool: "read_context", input: {} }));
     const walk = await capped(input([]), { model });
     expect(model.doGenerateCalls.length).toBe(0);
     expect(walk.agent).toBeUndefined();
     vi.doUnmock("@/lib/agent/budget");
+    vi.resetModules();
+  });
+
+  it("counts spend from a run that errors after billed steps", async () => {
+    vi.resetModules();
+    const { agentWalk: fresh } = await import("@/lib/agent/planner");
+    const { spentToday } = await import("@/lib/agent/budget");
+    const model = scripted((results) => (results.length < 2 ? { tool: "read_context", input: {} } : new Error("gateway dropped the stream")));
+    const walk = await fresh(input([]), { model });
+    expect(walk.agent).toBeUndefined();
+    // The failed run keeps its reservation, so it can't spend for free.
+    expect(await spentToday()).toBeGreaterThan(0.02);
+  });
+
+  it("drops a reason that states hours or prices Qloo didn't give", async () => {
+    let planned: { id: string; name: string }[] = [];
+    const model = scripted((results) => {
+      if (results.length === 0) return { tool: "find_places", input: {} };
+      if (results.length === 1) return { tool: "plan_walk", input: {} };
+      if (results.length === 2) {
+        planned = value(results[1]).stops as { id: string; name: string }[];
+        return {
+          tool: "explain_stops",
+          input: { reasons: planned.map((stop) => ({ id: stop.id, why: `People who love Khruangbin tend to love ${stop.name}. Free entry and open till 4am.` })) },
+        };
+      }
+      return "stop";
+    });
+    const walk = await agentWalk(input([]), { model });
+    expect(walk.agent).toBeDefined();
+    expect(walk.versions[0]!.stops.every((stop) => !/Free entry/.test(stop.blurb ?? ""))).toBe(true);
   });
 
   it("the Austin demo stays the scripted walk with the recorded agent steps", async () => {
@@ -131,5 +162,55 @@ describe("agent planner", () => {
     expect(model.doGenerateCalls.length).toBe(0);
     expect(walk.agent?.recorded).toBe(true);
     expect(walk.versions[0]!.stops[0]!.name).toBe("Antone’s Nightclub");
+  });
+});
+
+describe("agent planner, more", () => {
+  it("the demo emits exactly the recorded steps", async () => {
+    const { DEMO_AGENT_STEPS } = await import("@/lib/plan/design-walk");
+    const steps: string[] = [];
+    const walk = await agentWalk({ ...input(steps), start: { ...DEMO_START, source: "demo" }, demo: true, vibe: undefined });
+    expect(steps).toEqual(DEMO_AGENT_STEPS);
+    expect(walk.agent?.steps).toEqual(DEMO_AGENT_STEPS);
+  });
+
+  it("a timeout falls back to the planner", async () => {
+    const slow = scripted(() => ({ tool: "read_context", input: {} }));
+    const original = slow.doGenerate;
+    slow.doGenerate = async (options) => {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, 2_000);
+        options.abortSignal?.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(options.abortSignal?.reason ?? new Error("aborted"));
+        });
+      });
+      return original(options);
+    };
+    const walk = await agentWalk(input([]), { model: slow, timeoutMs: 50 });
+    expect(walk.agent).toBeUndefined();
+    expect(walk.versions[0]!.stops.length).toBeGreaterThan(0);
+  });
+
+  it("your own tastes from the demo start get the agent", async () => {
+    const model = scripted((results) => (results.length === 0 ? { tool: "find_places", input: {} } : results.length === 1 ? { tool: "plan_walk", input: {} } : "stop"));
+    const profile = { ...demoProfile(), entities: demoProfile().entities.slice(0, 2), tags: [] };
+    const walk = await agentWalk({ ...input([]), profile, start: { ...DEMO_START, source: "demo" }, demo: true }, { model });
+    expect(model.doGenerateCalls.length).toBeGreaterThan(0);
+    expect(walk.agent).toBeDefined();
+  });
+
+  it("a reason crediting a taste tag is kept", async () => {
+    const model = scripted((results) => {
+      if (results.length === 0) return { tool: "find_places", input: {} };
+      if (results.length === 1) return { tool: "plan_walk", input: {} };
+      if (results.length === 2) {
+        const stops = value(results[1]).stops as { id: string; name: string }[];
+        return { tool: "explain_stops", input: { reasons: stops.map((stop) => ({ id: stop.id, why: `People who love Live music tend to love ${stop.name}. A room for bands.` })) } };
+      }
+      return "stop";
+    });
+    const walk = await agentWalk(input([]), { model });
+    expect(walk.versions[0]!.stops[0]!.blurb).toMatch(/^People who love Live music/);
   });
 });

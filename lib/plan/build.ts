@@ -228,7 +228,7 @@ function toStops(
   });
 }
 
-function isDemoProfile(profile: TasteProfile): boolean {
+export function isDemoProfile(profile: TasteProfile): boolean {
   const key = (p: TasteProfile) => [...p.entities.map((e) => e.id), ...p.tags.map((t) => t.id)].sort().join("|");
   return key(profile) === key(demoProfile());
 }

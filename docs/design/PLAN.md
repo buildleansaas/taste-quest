@@ -51,7 +51,7 @@ flowchart LR
   end
   QC -->|X-Api-Key| QLOO[(Qloo Hackathon API<br/>/search /v2/tags /v2/insights)]
   RC -->|HTTPS + path token| OSRM[(OSRM on hermes<br/>Caddy → 127.0.0.1:5005)]
-  AG -->|AI Gateway · OIDC| LLM[(openai/gpt-5-mini<br/>fallback google/gemini-2.5-flash)]
+  AG -->|AI Gateway · OIDC| LLM[(google/gemini-2.5-flash<br/>fallback google/gemini-2.5-flash-lite)]
   MAP --> OFM[(OpenFreeMap tiles)]
 ```
 
@@ -75,7 +75,7 @@ There's **no database, no Redis, no auth provider and no routing SaaS.**
 | Auth | **None. Guest mode only.** No accounts and no cookies beyond what Next needs. An anonymous `deviceId` (UUID in localStorage) is sent only as a rate-limit and analytics hint. | Austin's call. It also removes the judges' sign-in wall. |
 | State | **In the browser:** IndexedDB via `idb-keyval` for profile, walks, walk versions and an event log. A localStorage mirror holds the active walk ID. **The server is stateless.** The client sends the profile with each request. | No DB service. Survives reloads and offline use. |
 | Server cache | **Vercel Runtime Cache** (`getCache()` from `@vercel/functions`, plus `'use cache: remote'` for pure fetchers). Regional, TTL-based, max 2 MB per item, tags for purging. | Built in, no extra service. See §3.3 for why it's enough for the throttle and quota meter. |
-| LLM | **Vercel AI SDK v5** via **AI Gateway with OIDC**. There's no `AI_GATEWAY_API_KEY` in production, because the AI SDK uses `VERCEL_OIDC_TOKEN` automatically on Vercel. Locally, `vercel env pull` brings in a short-lived OIDC token. Primary model `openai/gpt-5-mini`, fallback `google/gemini-2.5-flash`. | One account, spend controls, no keys to manage. |
+| LLM | **Vercel AI SDK v5** via **AI Gateway with OIDC**. There's no `AI_GATEWAY_API_KEY` in production, because the AI SDK uses `VERCEL_OIDC_TOKEN` automatically on Vercel. Locally, `vercel env pull` brings in a short-lived OIDC token. Primary model `google/gemini-2.5-flash`, fallback `google/gemini-2.5-flash-lite`. | One account, spend controls, no keys to manage. |
 | Weather | **Open-Meteo** (keyless, non-commercial tier, which fits a hackathon) | Indoor swaps when it rains. |
 | PWA | `app/manifest.ts` + Serwist service worker | Install prompt and offline mid-walk. |
 | Testing | Vitest (engine, Qloo client with synthetic fixtures), Playwright (mobile e2e on the demo), Lighthouse | — |
@@ -300,7 +300,7 @@ Starting points are snapped to **geohash-6** so nearby users share cached candid
 ### 3.5 Env vars (Vercel encrypted; `.env.example` in the repo without values)
 - `QLOO_API_KEY`, `QLOO_API_URL=https://hackathon.api.qloo.com`
 - `OSRM_URL=https://osrm-tq.76-13-113-185.sslip.io`, `OSRM_TOKEN` (path token)
-- `AI_MODEL=openai/gpt-5-mini`, `AI_FALLBACK_MODEL=google/gemini-2.5-flash`. **No AI key in production (OIDC).** Locally, run `vercel env pull` for `VERCEL_OIDC_TOKEN`.
+- `AI_MODEL=google/gemini-2.5-flash`, `AI_FALLBACK_MODEL=google/gemini-2.5-flash-lite`. **No AI key in production (OIDC).** Locally, run `vercel env pull` for `VERCEL_OIDC_TOKEN`.
 - `ADMIN_TOKEN`, `CRON_SECRET`
 
 ### 3.6 OSRM on hermes (self-hosted routing)

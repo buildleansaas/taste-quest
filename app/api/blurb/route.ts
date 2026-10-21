@@ -1,4 +1,5 @@
 import { explainBlurbWithSource } from "@/lib/agent/blurb";
+import { clientKey, rateLimit } from "@/lib/ratelimit";
 import { jsonError } from "@/lib/schemas";
 import { z } from "zod";
 import { profileSchema } from "@/lib/schemas";
@@ -21,6 +22,9 @@ const schema = z.object({
 });
 
 export async function POST(req: Request): Promise<Response> {
+  // Each call can reach the model, so it shares the plan route's guard rails.
+  const limit = rateLimit(clientKey(req, "blurb"), 20, 60 * 60 * 1000);
+  if (!limit.ok) return jsonError(429, "rate_limited", "Too many requests.");
   const parsed = schema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return jsonError(400, "invalid", "Missing stop.");
   const { blurb, source, error } = await explainBlurbWithSource({
@@ -36,5 +40,7 @@ export async function POST(req: Request): Promise<Response> {
   });
   // The source header lets a deploy check prove the model is reached; the error
   // text is the provider message (no keys), trimmed.
-  return Response.json({ blurb }, { headers: { "x-blurb-source": source, ...(error ? { "x-blurb-error": encodeURIComponent(error) } : {}) } });
+  const headers: Record<string, string> = { "x-blurb-source": source };
+  if (error && process.env.VERCEL_ENV !== "production") headers["x-blurb-error"] = encodeURIComponent(error);
+  return Response.json({ blurb }, { headers });
 }

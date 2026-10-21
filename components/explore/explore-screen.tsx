@@ -531,7 +531,7 @@ export function ExploreScreen() {
               {walk?.agent ? (
                 <details className="agent-steps">
                   <summary>How the AI agent planned this · {walk.agent.steps.length} steps</summary>
-                  <AgentSteps agent={walk.agent} />
+                  <AgentSteps agent={walk.agent} mock={walk.mock} />
                 </details>
               ) : null}
             </>
@@ -587,7 +587,7 @@ export function ExploreScreen() {
 
       {showSteps && walk?.agent ? (
         <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#28323c33" }} onClick={() => setShowSteps(false)}>
-          <div className="card map-menu" role="dialog" aria-label="How the AI agent planned this" onClick={(event) => event.stopPropagation()} style={{ padding: "8px 16px 16px" }}>
+          <div className="card map-menu" role="dialog" aria-label="How the AI agent planned this" onClick={(event) => event.stopPropagation()} style={{ padding: "8px 16px 16px", maxHeight: "calc(100dvh - 32px)", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span className="eyebrow">How the AI agent planned this</span>
               <button className="icon-btn ghost" type="button" aria-label="Close" style={{ width: 36, height: 36 }} onClick={() => setShowSteps(false)}>
@@ -596,7 +596,7 @@ export function ExploreScreen() {
                 </svg>
               </button>
             </div>
-            <AgentSteps agent={walk.agent} />
+            <AgentSteps agent={walk.agent} mock={walk.mock} />
           </div>
         </div>
       ) : null}
@@ -717,7 +717,7 @@ function fallbackBlurb(stop: Stop): string {
   return `Picked for your taste in ${names.join(" and ")}.`;
 }
 
-function AgentSteps({ agent }: { agent: NonNullable<Walk["agent"]> }) {
+function AgentSteps({ agent, mock }: { agent: NonNullable<Walk["agent"]>; mock?: boolean }) {
   return (
     <>
       <ol style={{ margin: "8px 0 0", padding: 0, listStyle: "none" }}>
@@ -731,7 +731,11 @@ function AgentSteps({ agent }: { agent: NonNullable<Walk["agent"]> }) {
         ))}
       </ol>
       <p style={{ margin: "8px 0 0", fontSize: 12, color: "var(--color-slate-dim)" }}>
-        {agent.recorded ? "Replayed from a recorded run of the agent; the demo route is fixed. Plan your own walk to watch the agent pick the stops live. " : ""}Model: {agent.model.replace(/^[^/]+\//, "")}. Places, hours and taste evidence come from Qloo.
+        {agent.recorded
+          ? "Steps 1–3 are replayed from a recorded run of the agent on the demo’s sample places; the demo route is fixed. Pick your own tastes to watch the agent plan live. "
+          : ""}
+        Model: {agent.model.replace(/^[^/]+\//, "")}.
+        {agent.recorded ? "" : mock ? " Sample places (no Qloo key on this deploy)." : " Places and taste evidence come from Qloo."}
       </p>
     </>
   );
