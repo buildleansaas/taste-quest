@@ -43,6 +43,10 @@ export const planSchema = z.object({
   demo: z.boolean().optional(),
   widen: z.boolean().optional(),
   tz: z.string().max(80).optional(),
+  /** Free text from "What's the vibe?", e.g. "first date, not too loud". */
+  vibe: z.string().trim().max(140).optional(),
+  /** Preview only: run the agent on the demo to record its steps. */
+  recordDemo: z.boolean().optional(),
 });
 
 export const rerouteSchema = z.object({
@@ -81,6 +85,10 @@ export const rerouteSchema = z.object({
       .optional(),
     returnMin: z.number().optional(),
     headingBack: z.boolean().optional(),
+    // Kept through a re-plan, so "How the AI agent planned this" survives a skip.
+    agent: z
+      .object({ model: z.string().max(80), steps: z.array(z.string().max(300)).max(20), recorded: z.boolean().optional() })
+      .optional(),
   }),
   fix: z.object({ lat: z.number(), lon: z.number() }),
   reason: z.enum(["initial", "offroute", "skip", "veto", "late", "closed", "weather"]),

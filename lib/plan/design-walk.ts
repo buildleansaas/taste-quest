@@ -201,3 +201,22 @@ export function designReroute(walk: Walk): { walk: Walk; toast: string } {
     toast: "Skipped Midnight Cowboy. Added Museum of the Weird, an 86% match on the way. 1h 31m left.",
   };
 }
+
+/**
+ * The Austin demo's planning steps: steps 1–3 of a real agent run
+ * (lib/agent/planner.ts) on the demo tastes and the demo clock, re-recorded on
+ * a preview deploy on 2026-10-21 with recordDemo. The response reported the
+ * model that answered: google/gemini-2.5-flash. The preview has no Qloo key, so
+ * the search ran on the 9 built-in sample places the demo walk is made from,
+ * and step 3 says so. That run then planned its own 2 stops (Swan Dive,
+ * Midnight Cowboy); the demo shows the fixed 4-stop loop instead, and the last
+ * line, the only one not emitted by the agent, says so.
+ * Re-record with POST /api/plan {…demo body, recordDemo: true} on a preview.
+ */
+export const DEMO_AGENT_MODEL = "google/gemini-2.5-flash";
+export const DEMO_AGENT_STEPS: string[] = [
+  "Reading your tastes…",
+  "Checked the time and weather: Sat, Oct 24, 7:00 PM, 72°F",
+  "Searched the sample Austin places for Khruangbin and Tame Impala fans: 9 found, 6 open and walkable",
+  "Laid out the Austin demo loop through four of them (a fixed route, so every judge sees the same walk)",
+];

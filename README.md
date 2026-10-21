@@ -13,7 +13,7 @@ Guest mode only. Nothing about you is stored on the server. Your taste profile a
 - Qloo Hackathon API (`https://hackathon.api.qloo.com`, `X-Api-Key`)
 - Self-hosted OSRM `foot` profile, reached through `OSRM_BASE_URL` (the base already includes its path token)
 - Vercel Runtime Cache (`getCache` from `@vercel/functions`) for search, tags, candidate pools, routes, weather, and the quota meter
-- Vercel AI SDK through AI Gateway with OIDC (`openai/gpt-5-mini`, fallback `google/gemini-2.5-flash`)
+- Vercel AI SDK through AI Gateway with OIDC: an agent (`google/gemini-2.5-flash`, fallback `google/gemini-2.5-flash-lite`; the AI Gateway free tier serves Google models only) plans custom walks through Qloo tools (`lib/agent/planner.ts`)
 
 Straight-line segments labeled **approx.** are used when OSRM is unset, errors, or takes longer than two seconds.
 
@@ -36,9 +36,10 @@ Open http://localhost:3000 and tap **Try the Austin demo**.
 | `QLOO_API_KEY` | For live taste data | Sent as `X-Api-Key`. Unset → synthetic sample data. |
 | `QLOO_API_URL` | No | Defaults to `https://hackathon.api.qloo.com`. |
 | `OSRM_BASE_URL` | For street-following routes | Base URL **including** the auth path token. Unset → approx. lines. |
-| `AI_MODEL` | No | Default `openai/gpt-5-mini`. |
-| `AI_FALLBACK_MODEL` | No | Default `google/gemini-2.5-flash`. Gateway `models` fallback. |
-| `AI_GATEWAY_API_KEY` | Local only | Optional. Production uses `VERCEL_OIDC_TOKEN` from Vercel. |
+| `AI_MODEL` | No | Default `google/gemini-2.5-flash`. Used by the agent and stop blurbs. Must have a price in `lib/agent/budget.ts`. |
+| `AI_FALLBACK_MODEL` | No | Default `google/gemini-2.5-flash-lite`. Gateway `models` fallback. |
+| `AI_GATEWAY_API_KEY` | Local only | Optional. On Vercel the gateway uses the request's OIDC token. |
+| `AI_DAILY_BUDGET_USD` | No | App-side AI spend cap per UTC day, default `0.3`. Best-effort (Runtime Cache counter); the AI Gateway budget is the hard limit. |
 | `ADMIN_TOKEN` | For `/api/health` | `Authorization: Bearer …` |
 | `CRON_SECRET` | For the demo warmer | Not implemented in this slice (`#14`). |
 
@@ -74,9 +75,9 @@ Real, and covered by tests or the mock-mode walk:
 - `POST /api/plan` as an AI SDK UI message stream (`data-step`, `data-stop`, `data-route`, `data-walk`)
 - Skip → `POST /api/reroute`, with an 8s undo of the previous walk version
 
-Stubbed, with TODOs in the code:
+Status of the planned issues (some still stubbed, with TODOs in the code):
 
-- `#7` Agent tool loop. Blurbs are the grounded template unless `VERCEL_OIDC_TOKEN` or `AI_GATEWAY_API_KEY` is present, in which case `/api/blurb` calls the gateway. The hallucination guard is implemented.
+- `#7` Agent tool loop: done (`lib/agent/planner.ts`). Tools: read_context, add_vibe, find_places, plan_walk, explain_stops. Stops only from Qloo's results; the engine owns time and route; any failure falls back to the plain planner. The preset Austin demo replays recorded agent steps (`DEMO_AGENT_STEPS`). Spend is capped in `lib/agent/budget.ts`.
 - `#8` Automatic re-route (off-route, late, closed, weather). The trigger predicate is tested. The map watches GPS for the user dot only. Skip is manual.
 - `#14` Warmed `demo:v1` cache, cron, and the simulated-walk scrubber. **Try the Austin demo** still plans from the preset profile.
 

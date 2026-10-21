@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { cacheGet, cacheSet, TTL } from "@/lib/cache";
 import { sha } from "@/lib/hash";
+import { reserve } from "@/lib/agent/budget";
 import { log } from "@/lib/log";
 import type { Evidence, TasteProfile } from "@/lib/types";
 
@@ -43,8 +44,22 @@ export function guardBlurb(
   return { ok: true };
 }
 
-function gatewayReady(): boolean {
-  return Boolean(process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
+/**
+ * Gateway fallback plus per-provider settings. Gemini 2.5 Flash thinks by
+ * default and its thinking tokens count against maxOutputTokens, which cut
+ * answers to one word; a short grounded sentence needs no thinking.
+ */
+export function modelOptions(fallback?: string) {
+  return {
+    ...(fallback ? { gateway: { models: [fallback] } } : {}),
+    google: { thinkingConfig: { thinkingBudget: 0 } },
+  };
+}
+
+export function gatewayReady(): boolean {
+  // On Vercel the gateway authenticates with the request's OIDC token (a header,
+  // not an env var), so running on Vercel is enough.
+  return Boolean(process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN || process.env.AI_GATEWAY_API_KEY);
 }
 
 export async function explainBlurb(input: {
@@ -54,15 +69,28 @@ export async function explainBlurb(input: {
   profile: TasteProfile;
   entityId: string;
 }): Promise<string> {
-  const fallback = templateBlurb(input);
-  const key = `blurb:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
-  const cached = await cacheGet<string>(key);
-  if (cached) return cached;
-  if (!gatewayReady()) return fallback;
+  return (await explainBlurbWithSource(input)).blurb;
+}
 
-  // TODO(#7): replace this single-shot paragraph with the tool loop
-  // (get_context, find_candidates, build_route, explain_stop) via streamText,
-  // stopWhen stepCountIs(6), and a 20s timeout. The engine stays the source of stops.
+export type BlurbSource = "model" | "cache" | "template:no-gateway" | "template:budget" | "template:guard" | "template:error";
+
+/** The blurb and where it came from, so a deploy can prove the model is reached. */
+export async function explainBlurbWithSource(input: {
+  place: string;
+  evidence: Evidence;
+  shortDescription?: string;
+  profile: TasteProfile;
+  entityId: string;
+}): Promise<{ blurb: string; source: BlurbSource; error?: string }> {
+  const fallback = templateBlurb(input);
+  const key = `blurb:v2:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
+  const cached = await cacheGet<string>(key);
+  if (cached) return { blurb: cached, source: "cache" };
+  if (!gatewayReady()) return { blurb: fallback, source: "template:no-gateway" };
+
+
+  // The stop page's blurb for a stop the agent didn't explain (lib/agent/planner.ts
+  // writes the plan's reasons itself); one short call, checked by guardBlurb.
   const names = input.profile.entities.map((entity) => entity.name);
   const shares = input.evidence.entityShares
     .map((share) => `${share.name} ${Math.round(share.share * 100)}%`)
@@ -71,7 +99,7 @@ export async function explainBlurb(input: {
   const prompt = [
     "You are a local friend who knows the listener's taste.",
     "Write at most 2 concrete sentences about why this place fits.",
-    "Only mention this place by its exact name. Do not invent hours, prices, awards, or history.",
+    "Only mention this place by its exact name, without quotation marks. Do not invent hours, prices, awards, or history.",
     "Phrase taste as: people who love X tend to love this.",
     `Place: ${input.place}`,
     `Known description: ${input.shortDescription ?? "none"}`,
@@ -80,27 +108,32 @@ export async function explainBlurb(input: {
     `Profile entities: ${names.join(", ")}`,
   ].join("\n");
 
+  const primary = process.env.AI_MODEL || "google/gemini-2.5-flash";
+  const fallbackModel = process.env.AI_FALLBACK_MODEL || "google/gemini-2.5-flash-lite";
+  // The hold follows the prompt's real size (about 3 characters a token, rounded up).
+  const budget = await reserve("blurb", [primary, fallbackModel], { inputTokens: Math.ceil(prompt.length / 3) + 50, outputTokens: 160 });
+  if (!budget) return { blurb: fallback, source: "template:budget" };
   try {
-    const primary = process.env.AI_MODEL || "openai/gpt-5-mini";
-    const fallbackModel = process.env.AI_FALLBACK_MODEL || "google/gemini-2.5-flash";
     const result = await generateText({
       model: primary,
       prompt,
       maxOutputTokens: 160,
-      providerOptions: {
-        gateway: { models: [fallbackModel] },
-      },
+      maxRetries: 1,
+      providerOptions: modelOptions(fallbackModel),
     });
+    await budget.step(result.usage);
+    await budget.settle(false);
     const text = result.text.trim();
     const guard = guardBlurb(text, input.place, names);
     const blurb = guard.ok && text ? text : fallback;
     if (!guard.ok) log("warn", "blurb-guard", { place: input.place, reason: guard.reason });
-    await cacheSet(key, blurb, TTL.blurb, ["blurb"]);
-    return blurb;
+    // Only a model blurb is cached; a guard failure retries next time.
+    if (guard.ok && text) await cacheSet(key, blurb, TTL.blurb, ["blurb"]);
+    return { blurb, source: guard.ok && text ? "model" : "template:guard" };
   } catch (error) {
-    log("warn", "blurb-fallback", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return fallback;
+    await budget.settle(true);
+    const message = error instanceof Error ? error.message : String(error);
+    log("warn", "blurb-fallback", { error: message });
+    return { blurb: fallback, source: "template:error", error: message.slice(0, 160) };
   }
 }

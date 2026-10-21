@@ -46,3 +46,22 @@ describe("cut-off sentences", () => {
     expect(tidyBlurb("Great spot. Ótimo bar com vista...")).toBe("Great spot.");
   });
 });
+
+describe("agent steps survive a re-plan", () => {
+  it("rerouteSchema keeps walk.agent", async () => {
+    const { rerouteSchema } = await import("@/lib/schemas");
+    const walk = await buildWalk({ profile: demoProfile(), start: { ...DEMO_START, source: "demo" }, budgetMin: 120, pace: "easy", mode: "2h", shape: "loop", demo: true, tz: "America/Chicago" });
+    const parsed = rerouteSchema.safeParse({ profile: demoProfile(), walk, fix: { lat: DEMO_START.lat, lon: DEMO_START.lon }, reason: "skip" });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.walk.agent?.recorded).toBe(true);
+  });
+});
+
+describe("blurb input limits", () => {
+  it("refuses an oversized stop description", async () => {
+    const { POST } = await import("@/app/api/blurb/route");
+    const body = { profile: demoProfile(), stop: { entityId: "x", name: "X", evidence: { entityShares: [], tagOverlap: [] }, shortDescription: "a".repeat(5_000) } };
+    const res = await POST(new Request("http://localhost/api/blurb", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json", "x-forwarded-for": "1.2.3.4" } }));
+    expect(res.status).toBe(400);
+  });
+});
