@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+import { pct, tidyBlurb } from "@/components/ui/taste";
+import { rerouteWalk, buildWalk } from "@/lib/plan/build";
+import { demoProfile, DEMO_START } from "@/lib/taste/curated";
+
+describe("display text", () => {
+  it("scores read as whole percents", () => {
+    expect(pct(0.834)).toBe(83);
+    expect(pct(1.2)).toBe(100);
+  });
+
+  it("drops a sentence Qloo cut off and keeps whole sentences", () => {
+    const text = "People who love Leon Bridges tend to love Brazos Hall. Stylish downtown venue with a rooftop deck, skyline views, and versatile...";
+    expect(tidyBlurb(text)).toBe("People who love Leon Bridges tend to love Brazos Hall.");
+    expect(tidyBlurb("One. Two three four.", 6)).toBe("One.");
+    expect(tidyBlurb("A very long first sentence with no stop", 12)).toBe("A very long…");
+  });
+
+  it("the skip popup names the skipped stop and uses percents", async () => {
+    const walk = await buildWalk({ profile: demoProfile(), start: { ...DEMO_START, source: "demo" }, budgetMin: 120, pace: "easy", mode: "2h", shape: "loop", demo: true, tz: "America/Chicago" });
+    const fix = { lat: DEMO_START.lat, lon: DEMO_START.lon };
+    const first = await rerouteWalk({ profile: demoProfile(), walk, fix, reason: "skip" });
+    expect(first.toast).toBe("Skipped Midnight Cowboy. Added Museum of the Weird, an 86% match on the way. 1h 31m left.");
+    const second = await rerouteWalk({ profile: demoProfile(), walk: first.walk, fix, reason: "skip" });
+    expect(second.toast).toMatch(/^Skipped Museum of the Weird\. (Added .+, an? \d+% match\. )?.+ left\.$/);
+    expect(second.toast).not.toMatch(/0\.\d\d/);
+  });
+});

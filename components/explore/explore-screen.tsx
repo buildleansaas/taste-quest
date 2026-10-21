@@ -18,6 +18,7 @@ import {
 } from "@/lib/map/austin-geometry";
 import { DESIGN_POOL } from "@/lib/plan/design-walk";
 import { ARRIVE_GAP_MS, ARRIVE_M, arriveAt, finishWalk, replanFrom } from "@/lib/walk/progress";
+import { MatchScore, TagRow, pct, tidyBlurb } from "@/components/ui/taste";
 import { useQuest } from "@/store/use-quest";
 import type { Stop, Walk, WalkRoute } from "@/lib/types";
 
@@ -46,6 +47,7 @@ export function ExploreScreen() {
   const [now, setNow] = useState(() => Date.now());
   const [recenter, setRecenter] = useState(0);
   const [skipping, setSkipping] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(tick);
@@ -207,11 +209,13 @@ export function ExploreScreen() {
   const origin = shape === "end-near" ? (walk?.end ?? budget?.end ?? start) : start;
   const returnMin = walk?.returnMin ?? 0;
   const showRide = Boolean(origin && returnMin > 0 && shouldOfferRide(returnMin, walk?.isDemo ? 19 : new Date().getHours()));
+  // Skipped stops leave the map (the faded old line shows the change); visited
+  // ones stay as small check marks, so the map reads as the walk so far.
   const stopPins: MapPin[] = stops
-    .filter((stop) => stop.state !== "visited" && stop.state !== "vetoed")
+    .filter((stop) => stop.state !== "skipped" && stop.state !== "vetoed")
     .map((stop) => {
-      if (stop.state === "skipped") {
-        return { n: "–", ll: [stop.lon, stop.lat] as [number, number], cls: "skipped", label: "Skipped" };
+      if (stop.state === "visited") {
+        return { n: "✓", ll: [stop.lon, stop.lat] as [number, number], cls: "visited" };
       }
       const nextPin = stop.state === "next";
       const fresh = Boolean(stop.introduced && nextPin);
@@ -240,7 +244,7 @@ export function ExploreScreen() {
         ? routePts
         : undefined;
   const pad = wide
-    ? { top: 128, bottom: 72, left: 24 + 400 + 64, right: 96 }
+    ? { top: 96, bottom: 72, left: 24 + 380 + 64, right: 88 }
     : listed
       ? REROUTE_PAD
       : EXPLORE_PAD;
@@ -319,6 +323,13 @@ export function ExploreScreen() {
     setWalk(finishWalk(walk));
   }
 
+  // The popup describes a route change; once the sheet moves on to heading
+  // back or the finish, the sheet says it better, so the popup goes.
+  const phase = walk?.status === "done" ? "done" : walk?.headingBack ? "back" : "walk";
+  useEffect(() => {
+    if (phase !== "walk") setToast(null);
+  }, [phase]);
+
   const center: [number, number] = user ?? [-97.743, 30.267];
   // Time left is the budget minus time since the walk was planned. remainingMin
   // is the planned length, so it only stands in for the scripted design walk
@@ -358,20 +369,29 @@ export function ExploreScreen() {
       </div>
       <DeviceChrome />
       <div className={listed ? "map-fade tall" : "map-fade"} />
-      <div className="hud" style={{ display: toast ? "none" : undefined }}>
+      <div className="hud">
         <button className="icon-btn" type="button" aria-label="Menu" onClick={() => setMenu(true)}>
           <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
             <path d="M3 6h14M3 10h14M3 14h14" stroke="#28323c" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
         </button>
         <div className="hud-chips">
-          <span className="geo-chip">
-            <span className="dot" style={{ background: "var(--color-accent)" }} />
-            {finished ? "Done" : `${leftLabel} left`}
-          </span>
-          <span className="geo-chip">
-            {finished ? "Walk done" : `${done} of ${stops.filter((stop) => stop.state !== "skipped" && stop.state !== "vetoed").length || "–"} stops`}
-          </span>
+          {finished ? (
+            <span className="geo-chip">
+              <span className="dot" style={{ background: "var(--color-open)" }} />
+              Walk complete
+            </span>
+          ) : (
+            <>
+              <span className="geo-chip">
+                <span className="dot" style={{ background: "var(--color-accent)" }} />
+                {walk?.headingBack ? `${leftLabel} home` : `${leftLabel} left`}
+              </span>
+              <span className="geo-chip">
+                {`${done} of ${stops.filter((stop) => stop.state !== "skipped" && stop.state !== "vetoed").length || "–"} stops`}
+              </span>
+            </>
+          )}
         </div>
         <button className="icon-btn" type="button" aria-label="Reset view" onClick={() => setRecenter((n) => n + 1)}>
           <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true">
@@ -429,6 +449,7 @@ export function ExploreScreen() {
             <DoneSheet
               stops={stops}
               km={version?.totals?.km}
+              minutes={walk.startedAt ? Math.round(elapsedMin) : undefined}
               onAgain={() => {
                 setWalk(null);
                 router.push("/start");
@@ -543,17 +564,42 @@ export function ExploreScreen() {
       ) : null}
 
       {menu ? (
-        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#28323c33" }} onClick={() => setMenu(false)}>
-          <div className="card map-menu" onClick={(event) => event.stopPropagation()}>
+        <div style={{ position: "absolute", inset: 0, zIndex: 40, background: "#28323c33" }} onClick={() => { setMenu(false); setConfirmClear(false); }}>
+          <div className="card map-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 4px 4px 12px" }}>
+              <span className="eyebrow">Menu</span>
+              <button className="icon-btn ghost" type="button" aria-label="Close menu" style={{ width: 36, height: 36 }} onClick={() => { setMenu(false); setConfirmClear(false); }}>
+                <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="M5 5l10 10M15 5L5 15" stroke="#28323c" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
             <MenuRow label="Edit tastes" onClick={() => router.push("/onboarding")} />
             <MenuRow label="Time and start" onClick={() => router.push("/start")} />
             {walk && !finished ? <MenuRow label="End walk" onClick={endWalk} /> : null}
-            <MenuRow
-              label="Clear my data"
-              onClick={() => {
-                void clearAll().then(() => router.push("/"));
-              }}
-            />
+            <div className="hair" style={{ margin: "4px 12px" }} />
+            {confirmClear ? (
+              <div style={{ padding: "8px 12px 10px" }}>
+                <div style={{ fontSize: 14, lineHeight: "20px", color: "var(--color-slate)" }}>Clear your tastes and walk from this device?</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button className="btn btn-cream" type="button" style={{ height: 38, flex: 1 }} onClick={() => setConfirmClear(false)}>
+                    Keep
+                  </button>
+                  <button
+                    className="btn"
+                    type="button"
+                    style={{ height: 38, flex: 1, background: "var(--color-error)", color: "#fff" }}
+                    onClick={() => {
+                      void clearAll().then(() => router.push("/"));
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <MenuRow label="Clear my data" danger onClick={() => setConfirmClear(true)} />
+            )}
           </div>
         </div>
       ) : null}
@@ -578,15 +624,13 @@ function NextSheet({
   skipping: boolean;
   onOpen: () => void;
 }) {
-  const shares = stop.evidence.entityShares.slice(0, 2);
-  const extra = stop.evidence.entityShares.length - shares.length;
-  const placeLine = [
-    stop.categoryLabel,
-    stop.address ? shortAddress(stop.address) : "",
-    hoursLabel(stop),
-  ]
+  const tags = stop.evidence.entityShares.map((share) => ({ id: share.entityId, name: share.name, share: share.share }));
+  // Hours lead: "Open till 2am" is what you act on; the street is on the map.
+  const placeLine = [hoursLabel(stop), stop.categoryLabel, stop.address ? shortAddress(stop.address) : ""]
     .filter(Boolean)
     .join(" · ");
+  const blurb = tidyBlurb(stop.blurb, 150) || fallbackBlurb(stop);
+  const maps = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lon}&travelmode=walking`;
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -597,35 +641,20 @@ function NextSheet({
           {index} of {total}
         </span>
       </div>
-      <button type="button" onClick={onOpen} style={{ display: "flex", width: "100%", justifyContent: "space-between", gap: 12, marginTop: 8, background: "none", border: 0, textAlign: "left", padding: 0 }}>
+      <button type="button" className="next-head" onClick={onOpen} aria-label={`${stop.name}: details`}>
         <span>
-          <span className="display" style={{ display: "block", fontSize: 24, lineHeight: "30px" }}>
-            {stop.name}
+          <span className="display" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 24, lineHeight: "30px" }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stop.name}</span>
+            <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true" style={{ flex: "none", marginTop: 2 }}>
+              <path d="M7.5 4l6 6-6 6" fill="none" stroke="#a0aab4" strokeWidth="2" strokeLinecap="round" />
+            </svg>
           </span>
           <span className="next-place" style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>{placeLine}</span>
         </span>
-        <span style={{ textAlign: "right" }}>
-          <span className="display" style={{ display: "block", fontSize: 24, lineHeight: "30px", fontWeight: 600, color: "var(--color-accent-deep)" }}>
-            {stop.affinity.toFixed(2)}
-          </span>
-          <span style={{ fontSize: 11, color: "var(--color-slate-dim)" }}>taste match</span>
-        </span>
+        <MatchScore value={stop.affinity} />
       </button>
-      <p className="next-blurb" style={{ marginTop: 12, fontSize: 14, lineHeight: "21px", color: "var(--color-plum)" }}>{stop.blurb}</p>
-      <div style={{ display: "flex", gap: 6, marginTop: 12, overflow: "hidden" }}>
-        {shares.map((share) => (
-          <span key={share.entityId} className="chip" style={{ height: 30, fontSize: 13, background: "var(--cat-artists-wash)", color: "var(--cat-artists)", boxShadow: "none" }}>
-            <span className="dot" style={{ background: "#7a4fd6" }} />
-            {share.name}
-            <span style={{ opacity: 0.7 }}>{Math.round(share.share * 100)}%</span>
-          </span>
-        ))}
-        {extra > 0 ? (
-          <span className="chip" style={{ height: 30, fontSize: 13, background: "var(--color-surface-alt)", boxShadow: "none", color: "var(--color-slate)" }}>
-            +{extra}
-          </span>
-        ) : null}
-      </div>
+      <p className="next-blurb" style={{ marginTop: 12, fontSize: 14, lineHeight: "21px", color: "var(--color-plum)", minHeight: 42 }}>{blurb}</p>
+      <TagRow tags={tags} />
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
         <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onSkip} disabled={skipping}>
           {skipping ? "Re-routing…" : "Skip"}
@@ -633,17 +662,24 @@ function NextSheet({
         <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onArrive} disabled={skipping}>
           I’m here
         </button>
-        <button className="btn btn-primary" type="button" style={{ flex: 1.4 }} onClick={onOpen}>
+        <a className="btn btn-primary" style={{ flex: 1.4, textDecoration: "none" }} href={maps} target="_blank" rel="noreferrer">
           Go · {stop.walkMin} min
-        </button>
+        </a>
       </div>
     </>
   );
 }
 
-function MenuRow({ label, onClick }: { label: string; onClick: () => void }) {
+/** A stop with no "why" text still says why, from its top taste matches. */
+function fallbackBlurb(stop: Stop): string {
+  const names = stop.evidence.entityShares.slice(0, 2).map((share) => share.name);
+  if (names.length === 0) return `A ${pct(stop.affinity)}% match for your taste.`;
+  return `Picked for your taste in ${names.join(" and ")}.`;
+}
+
+function MenuRow({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) {
   return (
-    <button type="button" onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: 0, padding: "12px 12px", fontWeight: 500 }}>
+    <button type="button" role="menuitem" onClick={onClick} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: 0, padding: "12px 12px", fontWeight: 500, borderRadius: 10, color: danger ? "var(--color-error)" : undefined }}>
       {label}
     </button>
   );
@@ -657,8 +693,8 @@ function pinColor(stop: Stop): string {
 }
 
 function ToastText({ text }: { text: string }) {
-  const name = "Museum of the Weird";
-  if (!text.includes(name)) return text;
+  const name = /Added (.+?), an? \d+% match/.exec(text)?.[1];
+  if (!name || !text.includes(name)) return text;
   const [before, after] = text.split(name);
   return (
     <>
@@ -740,7 +776,7 @@ function HeadBack({ minutes, label, ride, onFinish }: { minutes: number; label?:
   return (
     <>
       <div className="eyebrow" style={{ color: "var(--color-accent-deep)" }}>
-        Loop
+        Heading back
       </div>
       <h2 className="display" style={{ fontSize: 24, lineHeight: "30px", margin: "8px 0 0" }}>
         Time to head back · {Math.max(1, Math.round(minutes))} min
@@ -759,24 +795,36 @@ function HeadBack({ minutes, label, ride, onFinish }: { minutes: number; label?:
 function DoneSheet({
   stops,
   km,
+  minutes,
   onAgain,
   onTastes,
 }: {
   stops: Stop[];
   km?: number;
+  minutes?: number;
   onAgain: () => void;
   onTastes: () => void;
 }) {
   const visited = stops.filter((stop) => stop.state === "visited");
+  const best = [...visited].sort((a, b) => b.affinity - a.affinity)[0];
+  const stats = [
+    visited.length === 1 ? "1 stop" : `${visited.length} stops`,
+    km ? `${km} km` : "",
+    minutes && minutes >= 1 ? formatMinutes(minutes) : "",
+  ].filter(Boolean);
   return (
     <>
-      <div className="eyebrow" style={{ color: "var(--color-accent-deep)" }}>
+      <div className="eyebrow" style={{ color: "var(--color-open)" }}>
         Walk complete
       </div>
       <h2 className="display" style={{ fontSize: 24, lineHeight: "30px", margin: "8px 0 0" }}>
-        {visited.length === 1 ? "1 stop" : `${visited.length} stops`}
-        {km ? ` · ${km} km` : ""}
+        {stats.join(" · ")}
       </h2>
+      {best ? (
+        <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: "21px", color: "var(--color-plum)" }}>
+          Best match: {best.name}, {pct(best.affinity)}%.
+        </p>
+      ) : null}
       <div style={{ marginTop: 6 }}>
         {(visited.length ? visited : stops).slice(0, 4).map((stop) => (
           <WalkRow key={`${stop.entityId}-${stop.state}`} stop={stop} />
@@ -806,7 +854,7 @@ function WalkRow({ stop }: { stop: Stop }) {
       : skipped
         ? { background: "var(--color-cream)", color: "var(--color-slate-dim)", boxShadow: "inset 0 0 0 1.5px var(--color-hairline)" }
         : { background: "#fff", color: "var(--color-slate-dim)", boxShadow: "inset 0 0 0 1.5px var(--color-hairline)" };
-  const time = visited ? "visited" : skipped ? "skipped" : fresh ? `${stop.walkMin} min` : `+${stop.walkMin} min`;
+  const time = visited ? `${pct(stop.affinity)}%` : skipped ? "skipped" : fresh ? `${stop.walkMin} min` : `+${stop.walkMin} min`;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12, height: 44 }}>
       <div style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, fontFamily: "var(--font-display)", flex: "none", ...bubble }}>

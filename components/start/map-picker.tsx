@@ -32,10 +32,10 @@ export function MapPicker({
       </div>
       <div className="sheet" style={{ height: "calc(206px + var(--sab))" }}>
         <div className="grabber" />
-        <div style={{ padding: 20 }}>
+        <div style={{ padding: 20, maxWidth: 520, margin: "0 auto" }}>
           <div style={{ fontWeight: 600 }}>Drop a pin</div>
           <div style={{ fontSize: 13, color: "var(--color-slate-dim)", marginTop: 4 }}>
-            Tap the map where you want to start · {point.lat.toFixed(4)}, {point.lon.toFixed(4)}
+            Tap the map where you want to start. Drag to look around.
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
             <button className="btn btn-cream" type="button" style={{ flex: 1 }} onClick={onClose}>

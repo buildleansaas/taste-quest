@@ -104,8 +104,6 @@ export function OnboardingScreen() {
 
   if (!hydrated) return <main className="screen" />;
 
-  const curatedIds = new Set(CURATED.map((chip) => chip.id));
-  const searched = entities.filter((entity) => !curatedIds.has(entity.id));
   const picked = entities.length + tags.length;
   const ready = entities.length + seeds.length >= 2 && picked + seeds.length >= 3;
 
@@ -262,27 +260,45 @@ export function OnboardingScreen() {
           ) : null}
         </div>
 
-        {searched.length > 0 ? (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, color: "var(--color-slate-dim)", marginBottom: 8 }}>Your picks</div>
+        <div className={picked === 0 ? "picks-tray empty" : "picks-tray"} style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-slate-dim)", marginBottom: 8 }}>
+            Your picks{picked > 0 ? ` · ${picked}` : ""}
+          </div>
+          {picked === 0 ? (
+            <p style={{ margin: 0, fontSize: 13, lineHeight: "19px", color: "var(--color-slate-dim)" }}>
+              Search above or tap the suggestions. Two artists or films give Qloo the most to match on.
+            </p>
+          ) : (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {searched.map((entity) => (
+              {entities.map((entity) => (
                 <button
                   key={entity.id}
                   type="button"
                   className="chip on"
                   aria-label={`Remove ${entity.name}`}
-                  style={{ background: "var(--cat-artists-wash)", color: "var(--cat-artists)" }}
+                  style={{ background: entity.type === "movie" || entity.type === "tv_show" ? "var(--cat-film-wash)" : "var(--cat-artists-wash)", color: entity.type === "movie" || entity.type === "tv_show" ? "var(--cat-film)" : "var(--cat-artists)" }}
                   onClick={() => setEntities((current) => current.filter((item) => item.id !== entity.id))}
                 >
-                  <Check />
                   {entity.name}
                   <span aria-hidden="true" style={{ marginLeft: 2, opacity: 0.6 }}>×</span>
                 </button>
               ))}
+              {tags.map((tag) => (
+                <button
+                  key={tag.id}
+                  type="button"
+                  className="chip on"
+                  aria-label={`Remove ${tag.name}`}
+                  style={{ background: tag.cat === "cuisine" ? "var(--cat-cuisine-wash)" : "var(--cat-vibes-wash)", color: tag.cat === "cuisine" ? "var(--cat-cuisine)" : "var(--cat-vibes)" }}
+                  onClick={() => setTags((current) => current.filter((item) => item.id !== tag.id))}
+                >
+                  {tag.name}
+                  <span aria-hidden="true" style={{ marginLeft: 2, opacity: 0.6 }}>×</span>
+                </button>
+              ))}
             </div>
-          </div>
-        ) : null}
+          )}
+        </div>
         {seeds.length > 0 ? (
           <p className="banner" style={{ margin: "16px 0 0" }}>
             Why this fits you will lean on your vibes. We’ll add {seeds.map((seed) => seed.name).join(" and ")} so the match can split.
@@ -298,7 +314,9 @@ export function OnboardingScreen() {
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: section.color }} />
                 {section.label}
               </div>
-              <span style={{ fontSize: 12, color: "var(--color-slate-dim)" }}>{sectionCount(section.key)} picked</span>
+              {sectionCount(section.key) > 0 ? (
+                <span style={{ fontSize: 12, color: "var(--color-slate-dim)" }}>{sectionCount(section.key)} picked</span>
+              ) : null}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {CURATED.filter((chip) => chip.section === section.key).map((chip) => {
@@ -326,15 +344,17 @@ export function OnboardingScreen() {
         </div>
       </div>
       <div className="flow-dock roomy">
-        {!ready && picked > 0 ? (
+        {!ready ? (
           <p style={{ margin: "0 0 10px", textAlign: "center", fontSize: 13, color: "var(--color-slate-dim)" }}>
-            {entities.length + seeds.length < 2
+            {picked === 0
+              ? "Pick two artists or films, plus anything else you love."
+              : entities.length + seeds.length < 2
               ? `Add ${2 - entities.length - seeds.length === 1 ? "one more artist or film" : "two artists or films"} so Qloo can match your taste.`
               : "Pick one more to continue."}
           </p>
         ) : null}
         <button className="btn btn-primary btn-block" type="button" disabled={!ready} onClick={continueNext}>
-          Continue · {picked + (entities.length >= 2 ? 0 : seeds.length)} picked
+          {picked > 0 ? `Continue · ${picked + (entities.length >= 2 ? 0 : seeds.length)} picked` : "Continue"}
         </button>
       </div>
     </main>

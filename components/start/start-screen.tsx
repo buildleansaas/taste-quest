@@ -54,7 +54,6 @@ export function StartScreen() {
     if (!navigator.geolocation) {
       setGps("denied");
       setNear(false);
-      setPicking(true);
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -69,7 +68,6 @@ export function StartScreen() {
       () => {
         setGps("denied");
         setNear(false);
-        setPicking(true);
         setLabel("Location is off");
       },
       { enableHighAccuracy: true, timeout: 8000 },
@@ -89,7 +87,7 @@ export function StartScreen() {
         }
         const parts = body.localTime.split(",");
         const when = parts.length >= 2 ? `${parts[0]},${parts[1]}` : body.localTime;
-        setContextLine(`Open now · ${when.trim()} · ${body.weather.tempF}°F ${body.weatherLabel ?? ""}`.trim());
+        setContextLine(`${when.trim()} · ${body.weather.tempF}°F ${body.weatherLabel ?? ""}`.trim());
       })
       .catch(() => setContextLine(null));
   }, [lat, lon, source]);
@@ -207,7 +205,7 @@ export function StartScreen() {
             <span style={{ flex: 1 }}>
               <span style={{ display: "block", fontWeight: 600, fontSize: 15 }}>Near me</span>
               <span style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>
-                {gps === "denied" ? "Location is off" : label}
+                {gps === "denied" ? "Location is off" : source === "gps" && lat != null ? "Using your location" : source === "demo" ? DEMO_START.label : "Finding you…"}
                 {accuracy && accuracy > 150 ? " · Location is fuzzy" : ""}
               </span>
             </span>
@@ -247,19 +245,37 @@ export function StartScreen() {
               <span style={{ display: "block", fontSize: 15, fontWeight: source === "pin" ? 600 : 400, color: source === "pin" ? "var(--color-ink)" : undefined }}>
                 {source === "pin" ? "Starting at your pin" : "Pick a spot on the map"}
               </span>
-              {source === "pin" ? <span style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>{label} · tap to move it</span> : null}
+              <span style={{ display: "block", fontSize: 13, color: "var(--color-slate-dim)" }}>
+                {source === "pin" && lat != null && lon != null ? `${pinPlace(lat, lon)} · tap to move it` : "Tap the map to choose a start"}
+              </span>
             </span>
             <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true">
               <path d="M7.5 4l6 6-6 6" fill="none" stroke="#a0aab4" strokeWidth="1.8" strokeLinecap="round" />
             </svg>
           </button>
+          {(gps === "denied" || lat == null) && source !== "demo" ? (
+            <>
+              <div className="hair" style={{ marginLeft: 64 }} />
+              <button
+                type="button"
+                onClick={useDemoStart}
+                style={{ display: "flex", width: "100%", alignItems: "center", gap: 12, padding: "14px 16px", background: "transparent", border: 0, textAlign: "left" }}
+              >
+                <span style={{ width: 36, height: 36, borderRadius: "50%", background: "var(--cat-artists-wash)", display: "grid", placeItems: "center", color: "var(--cat-artists)", fontSize: 13, fontWeight: 700, fontFamily: "var(--font-display)" }}>
+                  ATX
+                </span>
+                <span style={{ flex: 1 }}>
+                  <span style={{ display: "block", fontSize: 15 }}>Start in downtown Austin</span>
+                  <span style={{ fontSize: 13, color: "var(--color-slate-dim)" }}>{DEMO_START.label}</span>
+                </span>
+              </button>
+            </>
+          ) : null}
         </div>
-        {(gps === "denied" || lat == null) && source !== "demo" ? (
-          <button type="button" className="btn btn-cream" style={{ marginTop: 12 }} onClick={useDemoStart}>
-            Use Austin demo start
-          </button>
-        ) : null}
-        <div style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="eyebrow" style={{ marginTop: 24, marginBottom: 10 }}>
+          Pace
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {(
             [
               ["easy", "Easy stroll"],
@@ -326,6 +342,12 @@ export function StartScreen() {
       ) : null}
     </main>
   );
+}
+
+/** A dropped pin reads as a place, not as coordinates. */
+function pinPlace(lat: number, lon: number): string {
+  const km = Math.hypot((lat - DEMO_START.lat) * 111, (lon - DEMO_START.lon) * 96);
+  return km < 2.5 ? "Downtown Austin" : `${lat.toFixed(3)}, ${lon.toFixed(3)}`;
 }
 
 function icon(kind: "clock" | "moon" | "sun") {

@@ -487,7 +487,7 @@ export async function rerouteWalk(input: {
     headingBack,
     remainingMin: headingBack ? returnMin : Math.round(Math.min(remainingRaw || input.walk.budgetMin, plannedLeft)),
   };
-  const toast = doneNow ? "That was your last stop. Walk complete." : toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin);
+  const toast = doneNow ? "That was your last stop. Walk complete." : toastFrom(diff, stops, headingBack ? returnMin : remaining, headingBack, returnMin, previous);
   return { walk, diff, toast };
 }
 
@@ -497,20 +497,27 @@ function toastFrom(
   remaining: number,
   headingBack = false,
   returnMin = 0,
+  previous: Stop[] = [],
 ): string {
   if (headingBack) return `Time to head back · ${Math.max(1, Math.round(returnMin))} min`;
   const added = stops.find((stop) => diff.added.includes(stop.entityId));
-  const removed = diff.removed[0];
-  const left = formatMinutes(remaining);
-  if (added && removed) {
-    return `Skipped a stop. Added ${added.name}, a ${added.affinity.toFixed(2)} match. Still ${left}.`;
-  }
-  if (added) return `Added ${added.name}, a ${added.affinity.toFixed(2)} match. Still ${left}.`;
+  const skipped = previous.find((stop) => stop.state === "next")
+    ?? previous.find((stop) => diff.removed.includes(stop.entityId));
+  const left = `${formatMinutes(remaining)} left`;
+  const skippedText = skipped ? `Skipped ${skipped.name}.` : "Skipped a stop.";
+  if (added) return `${skippedText} Added ${added.name}, ${matchPhrase(added.affinity)}. ${left}.`;
   if (!stops.some((stop) => stop.state === "next" || stop.state === "todo")) {
     if (returnMin > 0) return `Time to head back · ${Math.max(1, Math.round(returnMin))} min`;
     return "That was your last stop. Head back?";
   }
-  return `Route updated. Still ${left}.`;
+  return `${skippedText} ${left}.`;
+}
+
+/** "an 86% match" / "a 70% match": the article follows how the number is said. */
+function matchPhrase(affinity: number): string {
+  const pct = Math.round(affinity * 100);
+  const article = pct === 8 || pct === 11 || pct === 18 || (pct >= 80 && pct < 90) ? "an" : "a";
+  return `${article} ${pct}% match`;
 }
 
 export async function maybeLlmBlurb(walk: Walk, profile: TasteProfile): Promise<Walk> {

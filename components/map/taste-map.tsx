@@ -46,6 +46,8 @@ type Props = {
   fitKey?: string;
   onPick?: (lat: number, lon: number) => void;
   className?: string;
+  /** Slowly turns the camera (the welcome backdrop). Off under reduced motion. */
+  orbit?: boolean;
 };
 
 const COLORS = {
@@ -80,6 +82,7 @@ export function TasteMap({
   fitKey,
   onPick,
   className,
+  orbit = false,
 }: Props) {
   const node = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -155,7 +158,20 @@ export function TasteMap({
     };
     window.addEventListener("orientationchange", onOrient);
     mapRef.current = map;
+    let spin = 0;
+    if (orbit && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      let last = 0;
+      const turn = (time: number) => {
+        if (last) map.setBearing(map.getBearing() + ((time - last) / 1000) * 2.2);
+        last = time;
+        spin = window.requestAnimationFrame(turn);
+      };
+      map.once("idle", () => {
+        spin = window.requestAnimationFrame(turn);
+      });
+    }
     return () => {
+      window.cancelAnimationFrame(spin);
       observer.disconnect();
       window.removeEventListener("orientationchange", onOrient);
       map.off("style.load", apply);
