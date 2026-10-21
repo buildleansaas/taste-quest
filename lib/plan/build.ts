@@ -332,11 +332,30 @@ export function assembleWalk(
   };
 }
 
+/**
+ * Qloo's tag search matches loosely: for "not too fancy" live it returned dish
+ * reviews ("Not Just Pizzas Sbarro Offers Stuffed Strombolis Too"). Keep short
+ * tags that share a real word with the phrase, one per name.
+ */
+const STOP_WORDS = new Set(["the", "and", "not", "too", "very", "with", "for", "but", "some", "lots", "really"]);
+export function vibeMatches<T extends { name: string }>(phrase: string, hits: T[]): T[] {
+  const words = (text: string) => text.toLowerCase().split(/[^a-z0-9]+/).filter((word) => word.length > 2 && !STOP_WORDS.has(word));
+  const wanted = new Set(words(phrase));
+  const seen = new Set<string>();
+  return hits.filter((hit) => {
+    const name = hit.name.trim().toLowerCase();
+    if (seen.has(name) || hit.name.split(/\s+/).length > 4) return false;
+    if (!words(hit.name).some((word) => wanted.has(word) || [...wanted].some((want) => word.startsWith(want) || want.startsWith(word)))) return false;
+    seen.add(name);
+    return true;
+  });
+}
+
 /** "What's the vibe?" without the agent: the top Qloo tags for the phrase. */
 export async function vibeTags(vibe: string | undefined, limit = 2): Promise<TasteTag[]> {
   const phrase = vibe?.trim();
   if (!phrase) return [];
-  const hits = await searchTags(phrase).catch(() => []);
+  const hits = vibeMatches(phrase, await searchTags(phrase).catch(() => []));
   return hits.slice(0, limit).map((hit) => ({ id: hit.id, name: hit.name, cat: "vibe" as const }));
 }
 
