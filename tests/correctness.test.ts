@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { templateBlurb } from "@/lib/agent/blurb";
+import { firstSentence, guardBlurb, templateBlurb } from "@/lib/agent/blurb";
 import { listNames, reasonProblem } from "@/lib/agent/planner";
 import { isOpenAt } from "@/lib/engine/core";
 import { normalizeEntities } from "@/lib/qloo/normalize";
@@ -98,6 +98,33 @@ describe("why-you'll-like-it reasons", () => {
 
   it("still rejects a quoted other place", () => {
     expect(reasonProblem("Like 'Mohawk Austin', a room Khruangbin fans love for late shows.", "Brazos Hall", tastes)).toMatch(/quotation marks/);
+  });
+});
+
+describe("round-2 review fixes", () => {
+  const tastes = ["Khruangbin", "The Grand Budapest Hotel", "Art"];
+  it("a 'fans of' phrase may drop the leading The", () => {
+    expect(reasonProblem("Fans of Grand Budapest Hotel will love this pink pastry counter downtown.", "X", tastes)).toBeNull();
+  });
+  it("curly quotes around another place are caught", () => {
+    expect(guardBlurb("Next door ‘Mohawk’ rocks for Khruangbin fans.", "Cosmic Coffee", tastes).ok).toBe(false);
+    expect(guardBlurb("Next door “Mohawk” rocks for Khruangbin fans.", "Cosmic Coffee", tastes).ok).toBe(false);
+    expect(guardBlurb("Austin’s best patio for Khruangbin fans.", "Cosmic Coffee", tastes).ok).toBe(true);
+  });
+  it("a short tag must appear as a word, not inside one", () => {
+    expect(reasonProblem("A quiet heart of the neighborhood with partial shade and benches.", "X", tastes)).toMatch(/^name one/);
+    expect(reasonProblem("Street art on every wall, a natural detour for Art lovers.", "X", tastes)).toBeNull();
+  });
+  it("an abbreviation doesn't end the first sentence, and short fragments don't lead", () => {
+    expect(firstSentence("A bar on 6th St. with a big patio and string lights. More text.")).toBe("A bar on 6th St. with a big patio and string lights.");
+    expect(firstSentence("St. Elmo Brewing. Beer.")).toBeUndefined();
+    expect(firstSentence("Is this the best taco in town? Locals say yes.")).toBe("Is this the best taco in town?");
+  });
+  it("articles read right", () => {
+    const evidence = { entityShares: [], tagOverlap: [] };
+    expect(templateBlurb({ place: "P", evidence, kind: "Unique venue" })).toBe("A unique venue. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Arcade" })).toBe("An arcade. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Tacos" })).toBe("Tacos. A fit for your picks.");
   });
 });
 

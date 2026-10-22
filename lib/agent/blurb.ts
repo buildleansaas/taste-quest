@@ -25,17 +25,51 @@ export function templateBlurb(input: {
   const match = who ? (input.sample ? `A match for ${who}.` : `A Qloo match for ${who}.`) : "A fit for your picks.";
   // Qloo's own description is the concrete part, but only a whole sentence:
   // Qloo cuts long descriptions off with "...", and a fragment can't lead.
-  const first = input.shortDescription?.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0];
-  const clause = first && /[.!?]$/.test(first) && !/(\.\.\.|…)$/.test(first) ? first.replace(/[.!?]+$/, "") : undefined;
+  const clause = firstSentence(input.shortDescription);
   const kind = input.kind && input.kind !== "Place" ? input.kind.toLowerCase() : undefined;
-  const body = clause
-    ? `${clause}. ${match}`
-    : kind
-      ? `${/^[aeiou]/.test(kind) ? "An" : "A"} ${kind}. ${match}`
-      : match;
+  const body = clause ? `${clause} ${match}` : kind ? `${withArticle(kind)}. ${match}` : match;
   if (!input.orderNote) return body;
   const note = `${input.orderNote.charAt(0).toUpperCase()}${input.orderNote.slice(1)}.`;
   return `${body} ${note}`;
+}
+
+// Words a period follows without ending the sentence ("6th St. near the river").
+const ABBREV = /(?:^|\s)(?:st|dr|mt|ave|blvd|rd|jr|sr|no|vs|mr|mrs|ms|e\.g|i\.e|etc)\.$/i;
+
+/**
+ * The description's first whole sentence, with its own end mark, or nothing:
+ * Qloo cuts long descriptions off with "...", an abbreviation's period is not
+ * a sentence end, and a fragment under four words can't lead a reason.
+ */
+export function firstSentence(text?: string): string | undefined {
+  const clean = text?.replace(/\s+/g, " ").trim();
+  if (!clean) return undefined;
+  let end = -1;
+  for (const match of clean.matchAll(/[.!?](?=\s+[\p{Lu}\p{N}"“'‘(]|$)/gu)) {
+    const upTo = clean.slice(0, match.index! + 1);
+    if (match[0] === "." && (ABBREV.test(upTo) || /\.\.$/.test(upTo))) continue;
+    end = match.index! + 1;
+    break;
+  }
+  if (end < 0) return undefined;
+  const sentence = clean.slice(0, end);
+  if (/(\.\.\.|…)$/.test(sentence) || sentence.split(" ").length < 4) return undefined;
+  return sentence;
+}
+
+/** "a cafe", "an arcade", "a unique venue"; plural kinds ("Tacos") stand alone. */
+function withArticle(kind: string): string {
+  if (/[^s]s$/.test(kind) && !/(ss|us|is)$/.test(kind)) return kind.charAt(0).toUpperCase() + kind.slice(1);
+  const an = /^[aeiou]/.test(kind) && !/^(uni|use|usu|eu|one|once)/.test(kind);
+  return `${an ? "An" : "A"} ${kind}`;
+}
+
+/** True when `text` names `name` as a whole word or phrase, compared loosely. */
+export function namesTaste(text: string, name: string): boolean {
+  const want = looseName(name);
+  if (!want) return false;
+  const escaped = want.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u").test(looseName(text));
 }
 
 /** Taste names compared loosely: case, a leading "The", quotes and hyphens. */
@@ -54,14 +88,17 @@ export function guardBlurb(
   placeName: string,
   profileNames: string[],
 ): { ok: boolean; reason?: string } {
-  const allowed = new Set([placeName.toLowerCase(), ...profileNames.map((name) => name.toLowerCase())]);
-  for (const match of blurb.matchAll(PLACE_RE)) {
-    const quoted = (match[1] || match[2] || "").toLowerCase();
+  // Typographic quotes count as quotes too (models emit them); an apostrophe
+  // inside a word (Austin’s) still isn't one.
+  const text = blurb.replace(/[“”„]/g, '"').replace(/[‘’‚]/g, "'");
+  const allowed = new Set([placeName, ...profileNames].map(looseName));
+  for (const match of text.matchAll(PLACE_RE)) {
+    const quoted = looseName(match[1] || match[2] || "");
     if (quoted && !allowed.has(quoted)) return { ok: false, reason: "quoted-name" };
   }
-  for (const match of blurb.matchAll(BECAUSE_RE)) {
-    const phrase = match[1]?.toLowerCase() ?? "";
-    const known = profileNames.some((name) => phrase.includes(name.toLowerCase()));
+  for (const match of text.matchAll(BECAUSE_RE)) {
+    const phrase = match[1] ?? "";
+    const known = profileNames.some((name) => namesTaste(phrase, name));
     if (!known) return { ok: false, reason: "because-entity" };
   }
   return { ok: true };
@@ -104,6 +141,7 @@ export async function explainBlurbWithSource(input: {
   shortDescription?: string;
   profile: TasteProfile;
   entityId: string;
+  sample?: boolean;
 }): Promise<{ blurb: string; source: BlurbSource; error?: string }> {
   const fallback = templateBlurb(input);
   const key = `blurb:v3:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;

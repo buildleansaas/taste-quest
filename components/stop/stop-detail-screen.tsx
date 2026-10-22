@@ -45,7 +45,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
       headers: { "content-type": "application/json", "x-device-id": deviceId },
       body: JSON.stringify({
         profile,
-        stop: { entityId: stop.entityId, name: stop.name, evidence: stop.evidence },
+        stop: { entityId: stop.entityId, name: stop.name, evidence: stop.evidence, ...(stop.sample ? { sample: true } : {}) },
       }),
     })
       .then((res) => res.json())
