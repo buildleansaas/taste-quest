@@ -19,6 +19,7 @@ const schema = z.object({
       tagOverlap: z.array(z.object({ id: z.string().max(160), name: z.string().max(80) })).max(12),
     }),
     shortDescription: z.string().max(600).optional(),
+    sample: z.boolean().optional(),
   }),
 });
 
@@ -33,6 +34,7 @@ export async function POST(req: Request): Promise<Response> {
     entityId: parsed.data.stop.entityId,
     evidence: parsed.data.stop.evidence,
     shortDescription: parsed.data.stop.shortDescription,
+    sample: parsed.data.stop.sample,
     profile: {
       entities: parsed.data.profile.entities,
       tags: parsed.data.profile.tags,

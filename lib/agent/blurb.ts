@@ -25,24 +25,80 @@ export function templateBlurb(input: {
   const match = who ? (input.sample ? `A match for ${who}.` : `A Qloo match for ${who}.`) : "A fit for your picks.";
   // Qloo's own description is the concrete part, but only a whole sentence:
   // Qloo cuts long descriptions off with "...", and a fragment can't lead.
-  const first = input.shortDescription?.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0];
-  const clause = first && /[.!?]$/.test(first) && !/(\.\.\.|…)$/.test(first) ? first.replace(/[.!?]+$/, "") : undefined;
-  const kind = input.kind && input.kind !== "Place" ? input.kind.toLowerCase() : undefined;
-  const body = clause
-    ? `${clause}. ${match}`
-    : kind
-      ? `${/^[aeiou]/.test(kind) ? "An" : "A"} ${kind}. ${match}`
-      : match;
+  const clause = firstSentence(input.shortDescription);
+  const kind = input.kind && input.kind !== "Place" ? lowerKind(input.kind) : undefined;
+  const body = clause ? `${clause} ${match}` : kind ? `${withArticle(kind)}. ${match}` : match;
   if (!input.orderNote) return body;
   const note = `${input.orderNote.charAt(0).toUpperCase()}${input.orderNote.slice(1)}.`;
   return `${body} ${note}`;
 }
 
+// Words a period follows without ending the sentence ("6th St. near the river").
+const ABBREV = /(?:^|\s)(?:st|dr|mt|ave|blvd|rd|jr|sr|no|vs|mr|mrs|ms|e\.g|i\.e|etc)\.$/i;
+
+/**
+ * The description's first whole sentence, with its own end mark, or nothing:
+ * Qloo cuts long descriptions off with "...", an abbreviation's period is not
+ * a sentence end, and a fragment under four words can't lead a reason.
+ */
+export function firstSentence(text?: string): string | undefined {
+  const clean = text?.replace(/\s+/g, " ").trim();
+  if (!clean) return undefined;
+  let end = -1;
+  for (const match of clean.matchAll(/[.!?](?=\s+[\p{Lu}\p{N}"“'‘(]|$)/gu)) {
+    const upTo = clean.slice(0, match.index! + 1);
+    // "J. R. R. Tolkien", "the U.S. Capitol": a run of initials or a dotted
+    // abbreviation isn't a sentence end. A lone letter is ("Vitamin C. Great").
+    const after = clean.slice(match.index! + 1);
+    const initial = /(?:^|\s)\p{Lu}\.$/u.test(upTo) && (/(?:^|\s)\p{Lu}\.\s\p{Lu}\.$/u.test(upTo) || /^\s\p{Lu}\./u.test(after));
+    const dotted = /\p{L}\.\p{L}\.$/u.test(upTo);
+    if (match[0] === "." && (ABBREV.test(upTo) || /\.\.$/.test(upTo) || initial || dotted)) continue;
+    end = match.index! + 1;
+    break;
+  }
+  if (end < 0) return undefined;
+  const sentence = clean.slice(0, end);
+  if (/(\.\.\.|…)$/.test(sentence) || sentence.split(" ").length < 4) return undefined;
+  return sentence;
+}
+
+/** "a cafe", "an arcade", "a unique venue"; plural kinds ("Tacos") stand alone. */
+function withArticle(kind: string): string {
+  if (/[^s]s$/.test(kind) && !/(ss|us|is)$/.test(kind)) return kind.charAt(0).toUpperCase() + kind.slice(1);
+  const lower = kind.toLowerCase();
+  // Sound, not spelling: "an hour", "a unique", "a ukulele", "a one-off".
+  const an = (/^[aeiou]/.test(lower) && !/^(uni|use|usu|uti|uk|ufo|eu|one|once)/.test(lower)) || /^(hour|honest|honou?r|heir)/.test(lower);
+  return `${an ? "An" : "A"} ${kind}`;
+}
+
+// Nationalities and cuisines stay capitalised ("A Mexican restaurant"); every
+// other kind is lower-cased ("a music venue"). A list, not a suffix rule:
+// "-ic" and "-an" also end "Music", "Classic", "Vegan".
+const PROPER = new Set(
+  "American African Argentinian Asian Austrian Brazilian British Burmese Cajun Californian Cambodian Caribbean Chinese Colombian Creole Cuban Danish Dutch English Ethiopian European Filipino French German Greek Hawaiian Indian Indonesian Irish Israeli Italian Jamaican Japanese Korean Latin Lebanese Malaysian Mediterranean Mexican Middle Moroccan Nepalese Nordic Pakistani Persian Peruvian Polish Portuguese Puerto Russian Scandinavian Scottish Spanish Swedish Swiss Taiwanese Texan Tex-Mex Thai Tibetan Turkish Ukrainian Venezuelan Vietnamese Welsh Arabic Southern".split(" "),
+);
+
+function lowerKind(kind: string): string {
+  return PROPER.has(kind.split(/\s+/)[0]) ? kind : kind.charAt(0).toLowerCase() + kind.slice(1);
+}
+
+/** True when `text` names `name` as a whole word or phrase, compared loosely. */
+export function namesTaste(text: string, name: string): boolean {
+  const want = looseName(name);
+  if (!want) return false;
+  const escaped = want.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u").test(looseName(text));
+}
+
 /** Taste names compared loosely: case, a leading "The", quotes and hyphens. */
 export function looseName(name: string): string {
   return name
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[‘’`]/g, "'")
+    .replace(/\s*(?:&|\+)\s*/g, " and ")
+    .replace(/,/g, " ")
     .replace(/[-–—_]/g, " ")
     .replace(/^the\s+/, "")
     .replace(/\s+/g, " ")
@@ -54,14 +110,20 @@ export function guardBlurb(
   placeName: string,
   profileNames: string[],
 ): { ok: boolean; reason?: string } {
-  const allowed = new Set([placeName.toLowerCase(), ...profileNames.map((name) => name.toLowerCase())]);
-  for (const match of blurb.matchAll(PLACE_RE)) {
-    const quoted = (match[1] || match[2] || "").toLowerCase();
+  // Typographic quotes count as quotes too (models emit them); an apostrophe
+  // inside a word (Austin’s) still isn't one.
+  const text = blurb.replace(/[“”„«»″`]/g, '"').replace(/[‘’‚‹›′]/g, "'");
+  const allowed = new Set([placeName, ...profileNames].map(looseName));
+  for (const match of text.matchAll(PLACE_RE)) {
+    const quoted = looseName(match[1] || match[2] || "");
     if (quoted && !allowed.has(quoted)) return { ok: false, reason: "quoted-name" };
   }
-  for (const match of blurb.matchAll(BECAUSE_RE)) {
-    const phrase = match[1]?.toLowerCase() ?? "";
-    const known = profileNames.some((name) => phrase.includes(name.toLowerCase()));
+  for (const match of text.matchAll(BECAUSE_RE)) {
+    // "fans of X …" must name one of the tastes. (Requiring every listed item
+    // to be a taste was tried and rejected good reasons: tastes named
+    // "Mumford & Sons" or "Pride and Prejudice", and "Khruangbin and late nights".)
+    const phrase = match[1] ?? "";
+    const known = profileNames.some((name) => namesTaste(phrase, name));
     if (!known) return { ok: false, reason: "because-entity" };
   }
   return { ok: true };
@@ -104,6 +166,7 @@ export async function explainBlurbWithSource(input: {
   shortDescription?: string;
   profile: TasteProfile;
   entityId: string;
+  sample?: boolean;
 }): Promise<{ blurb: string; source: BlurbSource; error?: string }> {
   const fallback = templateBlurb(input);
   const key = `blurb:v3:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
@@ -147,7 +210,11 @@ export async function explainBlurbWithSource(input: {
     await budget.step(result.usage);
     await budget.settle(false);
     const text = result.text.trim();
-    const guard = guardBlurb(text, input.place, names);
+    // Like the planner's reasons, a stop-page blurb must name one of the
+    // tastes, tags included, and is checked against the same list.
+    const tasteNames = [...names, ...input.profile.tags.map((tag) => tag.name)];
+    const guarded = guardBlurb(text, input.place, tasteNames);
+    const guard = guarded.ok && !tasteNames.some((name) => namesTaste(text, name)) ? { ok: false, reason: "no-taste" } : guarded;
     const blurb = guard.ok && text ? text : fallback;
     if (!guard.ok) log("warn", "blurb-guard", { place: input.place, reason: guard.reason });
     // Only a model blurb is cached; a guard failure retries next time.

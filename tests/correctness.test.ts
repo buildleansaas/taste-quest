@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { templateBlurb } from "@/lib/agent/blurb";
+import { firstSentence, guardBlurb, templateBlurb } from "@/lib/agent/blurb";
 import { listNames, reasonProblem } from "@/lib/agent/planner";
 import { isOpenAt } from "@/lib/engine/core";
 import { normalizeEntities } from "@/lib/qloo/normalize";
@@ -98,6 +98,69 @@ describe("why-you'll-like-it reasons", () => {
 
   it("still rejects a quoted other place", () => {
     expect(reasonProblem("Like 'Mohawk Austin', a room Khruangbin fans love for late shows.", "Brazos Hall", tastes)).toMatch(/quotation marks/);
+  });
+});
+
+describe("round-2 review fixes", () => {
+  const tastes = ["Khruangbin", "The Grand Budapest Hotel", "Art"];
+  it("a 'fans of' phrase may drop the leading The", () => {
+    expect(reasonProblem("Fans of Grand Budapest Hotel will love this pink pastry counter downtown.", "X", tastes)).toBeNull();
+  });
+  it("curly quotes around another place are caught", () => {
+    expect(guardBlurb("Next door ‘Mohawk’ rocks for Khruangbin fans.", "Cosmic Coffee", tastes).ok).toBe(false);
+    expect(guardBlurb("Next door “Mohawk” rocks for Khruangbin fans.", "Cosmic Coffee", tastes).ok).toBe(false);
+    expect(guardBlurb("Austin’s best patio for Khruangbin fans.", "Cosmic Coffee", tastes).ok).toBe(true);
+  });
+  it("a short tag must appear as a word, not inside one", () => {
+    expect(reasonProblem("A quiet heart of the neighborhood with partial shade and benches.", "X", tastes)).toMatch(/^name one/);
+    expect(reasonProblem("Street art on every wall, a natural detour for Art lovers.", "X", tastes)).toBeNull();
+  });
+  it("an abbreviation doesn't end the first sentence, and short fragments don't lead", () => {
+    expect(firstSentence("A bar on 6th St. with a big patio and string lights. More text.")).toBe("A bar on 6th St. with a big patio and string lights.");
+    expect(firstSentence("St. Elmo Brewing. Beer.")).toBeUndefined();
+    expect(firstSentence("Is this the best taco in town? Locals say yes.")).toBe("Is this the best taco in town?");
+  });
+  it("articles read right", () => {
+    const evidence = { entityShares: [], tagOverlap: [] };
+    expect(templateBlurb({ place: "P", evidence, kind: "Unique venue" })).toBe("A unique venue. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Arcade" })).toBe("An arcade. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Tacos" })).toBe("Tacos. A fit for your picks.");
+  });
+});
+
+describe("#33 review fixes", () => {
+  it("accents don't matter when naming a taste", () => {
+    expect(reasonProblem("Fans of Sigur Ros will love this hushed listening bar downtown.", "X", ["Sigur Rós"])).toBeNull();
+    expect(reasonProblem("A late-night spot every Beyoncé fan can sing along in.", "X", ["Beyonce"])).toBeNull();
+  });
+  it("guillemets and backticks count as quotes", () => {
+    expect(guardBlurb("Next door «Mohawk» rocks for Khruangbin fans.", "Cosmic Coffee", ["Khruangbin"]).ok).toBe(false);
+    expect(guardBlurb("Next door `Mohawk` rocks for Khruangbin fans.", "Cosmic Coffee", ["Khruangbin"]).ok).toBe(false);
+  });
+  it("tastes with 'and', '&' or commas in their names can be cited, alongside plain words", () => {
+    expect(reasonProblem("Fans of Mumford & Sons will love the cozy reading nook and the tea list here.", "X", ["Mumford & Sons"])).toBeNull();
+    expect(reasonProblem("Fans of Pride and Prejudice will love this candlelit tearoom downtown.", "X", ["Pride and Prejudice"])).toBeNull();
+    expect(reasonProblem("Fans of earth wind and fire will love the horn section on Fridays.", "X", ["Earth, Wind & Fire"])).toBeNull();
+    expect(reasonProblem("Fans of Khruangbin and late nights will love the patio after dark.", "X", ["Khruangbin"])).toBeNull();
+    expect(guardBlurb("Fans of live music will love the nightly sets at Cosmic Coffee.", "Cosmic Coffee", ["Khruangbin", "Live music"]).ok).toBe(true);
+  });
+  it("a lone capital letter can end a sentence", () => {
+    expect(firstSentence("Packed with Vitamin C and fresh fruit juice. Great smoothies here.")).toBe("Packed with Vitamin C and fresh fruit juice.");
+    expect(firstSentence("Smoothies packed with Vitamin C. Great for a quick stop.")).toBe("Smoothies packed with Vitamin C.");
+  });
+  it("initials and U.S. don't end the first sentence", () => {
+    expect(firstSentence("Located near the U.S. Capitol building with great views. More.")).toBe("Located near the U.S. Capitol building with great views.");
+    expect(firstSentence("A pub inspired by author J. R. R. Tolkien, with ale on tap.")).toBe("A pub inspired by author J. R. R. Tolkien, with ale on tap.");
+  });
+  it("articles and nationalities read right", () => {
+    const evidence = { entityShares: [], tagOverlap: [] };
+    expect(templateBlurb({ place: "P", evidence, kind: "Mexican restaurant" })).toBe("A Mexican restaurant. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Ukrainian restaurant" })).toBe("A Ukrainian restaurant. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Utility store" })).toBe("A utility store. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Concert hall" })).toBe("A concert hall. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Music venue" })).toBe("A music venue. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Sushi restaurant" })).toBe("A sushi restaurant. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Irish pub" })).toBe("An Irish pub. A fit for your picks.");
   });
 });
 
