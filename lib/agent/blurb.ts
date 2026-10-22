@@ -5,7 +5,9 @@ import { reserve } from "@/lib/agent/budget";
 import { log } from "@/lib/log";
 import type { Evidence, TasteProfile } from "@/lib/types";
 
-const PLACE_RE = /"([^"]{2,80})"|'([^']{2,80})'/g;
+// A quoted name: double quotes, or single quotes that aren't apostrophes
+// inside a word ("the bar's rooftop and Austin's skyline" is not a quote).
+const PLACE_RE = /"([^"]{2,80})"|(?<![\p{L}\p{N}])'([^']{2,80})'(?![\p{L}\p{N}])/gu;
 const BECAUSE_RE = /(?:because you like|who love|fans of)\s+([^.]{2,80})/gi;
 
 export function templateBlurb(input: {
@@ -13,17 +15,38 @@ export function templateBlurb(input: {
   evidence: Evidence;
   shortDescription?: string;
   orderNote?: string;
+  kind?: string;
+  /** Built-in sample places: Qloo never ranked them, so don't credit it. */
+  sample?: boolean;
 }): string {
   const top = [...input.evidence.entityShares].sort((a, b) => b.share - a.share)[0];
   const tag = input.evidence.tagOverlap[0]?.name;
-  const who = top?.name ?? "this taste";
-  const and = tag ? ` and ${tag.toLowerCase()}` : "";
-  const clause = input.shortDescription?.split(". ")[0];
-  const lead = `People who love ${who}${and} tend to love ${input.place}.`;
-  const body = clause ? `${lead} ${clause.replace(/\.$/, "")}.` : lead;
+  const who = top?.name ? `${top.name}${top && tag ? ` and ${tag.toLowerCase()}` : ""} fans` : tag ? `${tag.toLowerCase()} fans` : undefined;
+  const match = who ? (input.sample ? `A match for ${who}.` : `A Qloo match for ${who}.`) : "A fit for your picks.";
+  // Qloo's own description is the concrete part, but only a whole sentence:
+  // Qloo cuts long descriptions off with "...", and a fragment can't lead.
+  const first = input.shortDescription?.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0];
+  const clause = first && /[.!?]$/.test(first) && !/(\.\.\.|…)$/.test(first) ? first.replace(/[.!?]+$/, "") : undefined;
+  const kind = input.kind && input.kind !== "Place" ? input.kind.toLowerCase() : undefined;
+  const body = clause
+    ? `${clause}. ${match}`
+    : kind
+      ? `${/^[aeiou]/.test(kind) ? "An" : "A"} ${kind}. ${match}`
+      : match;
   if (!input.orderNote) return body;
   const note = `${input.orderNote.charAt(0).toUpperCase()}${input.orderNote.slice(1)}.`;
   return `${body} ${note}`;
+}
+
+/** Taste names compared loosely: case, a leading "The", quotes and hyphens. */
+export function looseName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[‘’`]/g, "'")
+    .replace(/[-–—_]/g, " ")
+    .replace(/^the\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function guardBlurb(
@@ -83,7 +106,7 @@ export async function explainBlurbWithSource(input: {
   entityId: string;
 }): Promise<{ blurb: string; source: BlurbSource; error?: string }> {
   const fallback = templateBlurb(input);
-  const key = `blurb:v2:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
+  const key = `blurb:v3:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
   const cached = await cacheGet<string>(key);
   if (cached) return { blurb: cached, source: "cache" };
   if (!gatewayReady()) return { blurb: fallback, source: "template:no-gateway" };
@@ -100,7 +123,7 @@ export async function explainBlurbWithSource(input: {
     "You are a local friend who knows the listener's taste.",
     "Write at most 2 concrete sentences about why this place fits.",
     "Only mention this place by its exact name, without quotation marks. Do not invent hours, prices, awards, or history.",
-    "Phrase taste as: people who love X tend to love this.",
+    "Name one of the listener's tastes and one concrete detail from the description or tags. Sound natural; don't open with 'People who love'.",
     `Place: ${input.place}`,
     `Known description: ${input.shortDescription ?? "none"}`,
     `Entity shares: ${shares || "none"}`,

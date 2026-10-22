@@ -94,6 +94,35 @@ describe("agent planner", () => {
     expect(stops.every((stop) => pool.has(stop.entityId))).toBe(true);
   });
 
+  it("a stop the agent skips is sent back, so every stop gets its own reason", async () => {
+    let missing: { id: string; reason: string }[] = [];
+    const model = scripted((results) => {
+      switch (results.length) {
+        case 0:
+          return { tool: "find_places", input: {} };
+        case 1:
+          return { tool: "plan_walk", input: {} };
+        case 2: {
+          const stops = value(results[1]).stops as { id: string; name: string }[];
+          // Explains only the first stop.
+          return { tool: "explain_stops", input: { reasons: [{ id: stops[0]!.id, why: `A warm room with bands most nights, an easy yes for Khruangbin fans.` }] } };
+        }
+        case 3: {
+          missing = value(results[2]).rejected as { id: string; reason: string }[];
+          return { tool: "explain_stops", input: { reasons: missing.map((item) => ({ id: item.id, why: `Another strong pick for Khruangbin fans, close to the rest of the walk.` })) } };
+        }
+        default:
+          return "stop";
+      }
+    });
+    const walk = await agentWalk(input([]), { model });
+    const stops = walk.versions[0]!.stops;
+    expect(stops.length).toBeGreaterThan(1);
+    expect(missing.length).toBe(stops.length - 1);
+    expect(missing.every((item) => /missing/.test(item.reason))).toBe(true);
+    expect(stops.every((stop) => /Khruangbin fans/.test(stop.blurb ?? ""))).toBe(true);
+  });
+
   it("rejects a place id the model invents and falls back to the planner", async () => {
     let rejected: unknown;
     const model = scripted((results) => {

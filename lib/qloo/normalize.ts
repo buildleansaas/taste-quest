@@ -75,7 +75,17 @@ function readHours(value: unknown): PlaceHours | undefined {
       .filter((item): item is { opens: string; closes: string } => item != null);
     hours[day.toLowerCase()] = intervals;
   }
+  // Qloo sends 00:00–00:00 on every day when it has no real hours (seen on
+  // Austin venues that are not open around the clock). Read that as "not
+  // listed" rather than "open 24 hours". One 00:00–00:00 day among real hours
+  // is a genuine all-day opening and is kept.
+  const spans = Object.values(hours).flat();
+  if (spans.length > 0 && spans.every((span) => isMidnight(span.opens) && isMidnight(span.closes))) return undefined;
   return hours;
+}
+
+function isMidnight(value: string): boolean {
+  return /^T?00:?00(?::?00)?(?:\.0+)?Z?$/.test(value.trim());
 }
 
 function readShares(entity: UnknownRecord, names: Map<string, string>): EntityShare[] {

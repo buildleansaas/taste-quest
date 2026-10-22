@@ -61,7 +61,7 @@ function poolCacheKey(profile: TasteProfile, hash: string, radius: number, weekd
     `${profile.entities.map((e) => e.id).sort().join(",")}|${profile.tags.map((t) => t.id).sort().join(",")}`,
   );
   // Bump the version when normalized Candidate fields change, so cached pools are not reused.
-  return `qp:v5:${signature}:${hash}:${radius}:${weekday}`;
+  return `qp:v6:${signature}:${hash}:${radius}:${weekday}`;
 }
 
 async function loadCandidates(input: PlanInput, weekday: string, rainy: boolean): Promise<{
@@ -197,6 +197,8 @@ function toStops(
       evidence,
       shortDescription: stop.shortDescription,
       orderNote: stop.orderNote,
+      kind: stop.categoryLabel,
+      sample: stop.sample,
     });
     const closedNow = stop.hours ? !isOpenAt(stop.hours, weekday, eta) : false;
     elapsed += stop.dwellMin;
