@@ -47,8 +47,12 @@ export function firstSentence(text?: string): string | undefined {
   let end = -1;
   for (const match of clean.matchAll(/[.!?](?=\s+[\p{Lu}\p{N}"“'‘(]|$)/gu)) {
     const upTo = clean.slice(0, match.index! + 1);
-    // "J. R. R. Tolkien", "the U.S. Capitol": a single letter before the period.
-    if (match[0] === "." && (ABBREV.test(upTo) || /\.\.$/.test(upTo) || /(?:^|[\s.])\p{L}\.$/u.test(upTo))) continue;
+    // "J. R. R. Tolkien", "the U.S. Capitol": a run of initials or a dotted
+    // abbreviation isn't a sentence end. A lone letter is ("Vitamin C. Great").
+    const after = clean.slice(match.index! + 1);
+    const initial = /(?:^|\s)\p{Lu}\.$/u.test(upTo) && (/(?:^|\s)\p{Lu}\.\s\p{Lu}\.$/u.test(upTo) || /^\s\p{Lu}\./u.test(after));
+    const dotted = /\p{L}\.\p{L}\.$/u.test(upTo);
+    if (match[0] === "." && (ABBREV.test(upTo) || /\.\.$/.test(upTo) || initial || dotted)) continue;
     end = match.index! + 1;
     break;
   }
@@ -67,11 +71,15 @@ function withArticle(kind: string): string {
   return `${an ? "An" : "A"} ${kind}`;
 }
 
-// Nationalities and other proper adjectives stay capitalised ("A Mexican restaurant").
-const PROPER = /^(?:[A-Z][a-z]+(?:an|ian|ean|ese|ish|ic|i|ch|ss)|Thai|French|Dutch|Greek|Swiss|Tex-Mex|Cajun|Creole|Southern)\b/;
+// Nationalities and cuisines stay capitalised ("A Mexican restaurant"); every
+// other kind is lower-cased ("a music venue"). A list, not a suffix rule:
+// "-ic" and "-an" also end "Music", "Classic", "Vegan".
+const PROPER = new Set(
+  "American African Argentinian Asian Austrian Brazilian British Burmese Cajun Californian Cambodian Caribbean Chinese Colombian Creole Cuban Danish Dutch English Ethiopian European Filipino French German Greek Hawaiian Indian Indonesian Irish Israeli Italian Jamaican Japanese Korean Latin Lebanese Malaysian Mediterranean Mexican Middle Moroccan Nepalese Nordic Pakistani Persian Peruvian Polish Portuguese Puerto Russian Scandinavian Scottish Spanish Swedish Swiss Taiwanese Texan Tex-Mex Thai Tibetan Turkish Ukrainian Venezuelan Vietnamese Welsh Arabic Southern".split(" "),
+);
 
 function lowerKind(kind: string): string {
-  return PROPER.test(kind) ? kind : kind.charAt(0).toLowerCase() + kind.slice(1);
+  return PROPER.has(kind.split(/\s+/)[0]) ? kind : kind.charAt(0).toLowerCase() + kind.slice(1);
 }
 
 /** True when `text` names `name` as a whole word or phrase, compared loosely. */
@@ -90,6 +98,7 @@ export function looseName(name: string): string {
     .toLowerCase()
     .replace(/[‘’`]/g, "'")
     .replace(/\s*(?:&|\+)\s*/g, " and ")
+    .replace(/,/g, " ")
     .replace(/[-–—_]/g, " ")
     .replace(/^the\s+/, "")
     .replace(/\s+/g, " ")
@@ -110,11 +119,11 @@ export function guardBlurb(
     if (quoted && !allowed.has(quoted)) return { ok: false, reason: "quoted-name" };
   }
   for (const match of text.matchAll(BECAUSE_RE)) {
-    // "fans of Mohawk and Khruangbin": every name in the list must be a taste,
-    // not just one of them. The list ends at the first verb-ish break.
-    const list = (match[1] ?? "").split(/\s+(?:will|would|can|could|should|might|may|love|loves|tend|get|find|are|is|who|that)\b/i)[0] ?? "";
-    const items = list.split(/\s*(?:,|\band\b|&|\+|\bor\b)\s*/i).map((item) => item.trim()).filter((item) => item.length > 1);
-    const known = items.length > 0 && items.every((item) => profileNames.some((name) => namesTaste(item, name)));
+    // "fans of X …" must name one of the tastes. (Requiring every listed item
+    // to be a taste was tried and rejected good reasons: tastes named
+    // "Mumford & Sons" or "Pride and Prejudice", and "Khruangbin and late nights".)
+    const phrase = match[1] ?? "";
+    const known = profileNames.some((name) => namesTaste(phrase, name));
     if (!known) return { ok: false, reason: "because-entity" };
   }
   return { ok: true };
@@ -201,9 +210,10 @@ export async function explainBlurbWithSource(input: {
     await budget.step(result.usage);
     await budget.settle(false);
     const text = result.text.trim();
-    const guarded = guardBlurb(text, input.place, names);
-    // Like the planner's reasons, a stop-page blurb must name one of the tastes.
+    // Like the planner's reasons, a stop-page blurb must name one of the
+    // tastes, tags included, and is checked against the same list.
     const tasteNames = [...names, ...input.profile.tags.map((tag) => tag.name)];
+    const guarded = guardBlurb(text, input.place, tasteNames);
     const guard = guarded.ok && !tasteNames.some((name) => namesTaste(text, name)) ? { ok: false, reason: "no-taste" } : guarded;
     const blurb = guard.ok && text ? text : fallback;
     if (!guard.ok) log("warn", "blurb-guard", { place: input.place, reason: guard.reason });

@@ -137,9 +137,16 @@ describe("#33 review fixes", () => {
     expect(guardBlurb("Next door «Mohawk» rocks for Khruangbin fans.", "Cosmic Coffee", ["Khruangbin"]).ok).toBe(false);
     expect(guardBlurb("Next door `Mohawk` rocks for Khruangbin fans.", "Cosmic Coffee", ["Khruangbin"]).ok).toBe(false);
   });
-  it("every name in a 'fans of' list must be a taste", () => {
-    expect(reasonProblem("Fans of Mohawk and Khruangbin will love this loud patio bar downtown.", "X", ["Khruangbin"])).toMatch(/name one/);
-    expect(reasonProblem("Fans of Khruangbin and The Grand Budapest Hotel will love this pastel bar.", "X", ["Khruangbin", "The Grand Budapest Hotel"])).toBeNull();
+  it("tastes with 'and', '&' or commas in their names can be cited, alongside plain words", () => {
+    expect(reasonProblem("Fans of Mumford & Sons will love the cozy reading nook and the tea list here.", "X", ["Mumford & Sons"])).toBeNull();
+    expect(reasonProblem("Fans of Pride and Prejudice will love this candlelit tearoom downtown.", "X", ["Pride and Prejudice"])).toBeNull();
+    expect(reasonProblem("Fans of earth wind and fire will love the horn section on Fridays.", "X", ["Earth, Wind & Fire"])).toBeNull();
+    expect(reasonProblem("Fans of Khruangbin and late nights will love the patio after dark.", "X", ["Khruangbin"])).toBeNull();
+    expect(guardBlurb("Fans of live music will love the nightly sets at Cosmic Coffee.", "Cosmic Coffee", ["Khruangbin", "Live music"]).ok).toBe(true);
+  });
+  it("a lone capital letter can end a sentence", () => {
+    expect(firstSentence("Packed with Vitamin C and fresh fruit juice. Great smoothies here.")).toBe("Packed with Vitamin C and fresh fruit juice.");
+    expect(firstSentence("Smoothies packed with Vitamin C. Great for a quick stop.")).toBe("Smoothies packed with Vitamin C.");
   });
   it("initials and U.S. don't end the first sentence", () => {
     expect(firstSentence("Located near the U.S. Capitol building with great views. More.")).toBe("Located near the U.S. Capitol building with great views.");
@@ -151,6 +158,9 @@ describe("#33 review fixes", () => {
     expect(templateBlurb({ place: "P", evidence, kind: "Ukrainian restaurant" })).toBe("A Ukrainian restaurant. A fit for your picks.");
     expect(templateBlurb({ place: "P", evidence, kind: "Utility store" })).toBe("A utility store. A fit for your picks.");
     expect(templateBlurb({ place: "P", evidence, kind: "Concert hall" })).toBe("A concert hall. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Music venue" })).toBe("A music venue. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Sushi restaurant" })).toBe("A sushi restaurant. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Irish pub" })).toBe("An Irish pub. A fit for your picks.");
   });
 });
 
