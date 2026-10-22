@@ -128,6 +128,32 @@ describe("round-2 review fixes", () => {
   });
 });
 
+describe("#33 review fixes", () => {
+  it("accents don't matter when naming a taste", () => {
+    expect(reasonProblem("Fans of Sigur Ros will love this hushed listening bar downtown.", "X", ["Sigur Rós"])).toBeNull();
+    expect(reasonProblem("A late-night spot every Beyoncé fan can sing along in.", "X", ["Beyonce"])).toBeNull();
+  });
+  it("guillemets and backticks count as quotes", () => {
+    expect(guardBlurb("Next door «Mohawk» rocks for Khruangbin fans.", "Cosmic Coffee", ["Khruangbin"]).ok).toBe(false);
+    expect(guardBlurb("Next door `Mohawk` rocks for Khruangbin fans.", "Cosmic Coffee", ["Khruangbin"]).ok).toBe(false);
+  });
+  it("every name in a 'fans of' list must be a taste", () => {
+    expect(reasonProblem("Fans of Mohawk and Khruangbin will love this loud patio bar downtown.", "X", ["Khruangbin"])).toMatch(/name one/);
+    expect(reasonProblem("Fans of Khruangbin and The Grand Budapest Hotel will love this pastel bar.", "X", ["Khruangbin", "The Grand Budapest Hotel"])).toBeNull();
+  });
+  it("initials and U.S. don't end the first sentence", () => {
+    expect(firstSentence("Located near the U.S. Capitol building with great views. More.")).toBe("Located near the U.S. Capitol building with great views.");
+    expect(firstSentence("A pub inspired by author J. R. R. Tolkien, with ale on tap.")).toBe("A pub inspired by author J. R. R. Tolkien, with ale on tap.");
+  });
+  it("articles and nationalities read right", () => {
+    const evidence = { entityShares: [], tagOverlap: [] };
+    expect(templateBlurb({ place: "P", evidence, kind: "Mexican restaurant" })).toBe("A Mexican restaurant. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Ukrainian restaurant" })).toBe("A Ukrainian restaurant. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Utility store" })).toBe("A utility store. A fit for your picks.");
+    expect(templateBlurb({ place: "P", evidence, kind: "Concert hall" })).toBe("A concert hall. A fit for your picks.");
+  });
+});
+
 describe("the agent's search step", () => {
   it("names every pick, tags included", () => {
     expect(listNames(["Khruangbin", "The Grand Budapest Hotel", "natural wine"], 3)).toBe("Khruangbin, The Grand Budapest Hotel and natural wine");
