@@ -19,6 +19,10 @@ describe("opening hours", () => {
     expect(place(allWeek({ opens: "T00:00:00", closes: "T00:00:00" })).hours).toBeUndefined();
   });
 
+  it("reads other midnight spellings the same way", () => {
+    for (const t of ["T00:00:00Z", "00:00", "0000", "T00:00:00.000"]) expect(place(allWeek({ opens: t, closes: t })).hours).toBeUndefined();
+  });
+
   it("keeps a real all-day opening among real hours", () => {
     const hours = { ...allWeek({ opens: "T17:00:00", closes: "T02:00:00" }), saturday: [{ opens: "T00:00:00", closes: "T00:00:00" }] };
     const kept = place(hours).hours!;
@@ -35,7 +39,7 @@ describe("why-you'll-like-it reasons", () => {
   const tastes = ["Khruangbin", "The Grand Budapest Hotel", "Natural wine"];
 
   it("rejects a bare description that names no taste", () => {
-    expect(reasonProblem("This is a concert hall.", "Brazos Hall", tastes)).toBe("name one of the walker's tastes");
+    expect(reasonProblem("This is a concert hall.", "Brazos Hall", tastes)).toMatch(/^name one of the walker's tastes/);
   });
 
   it("rejects a reason that is too short to say anything", () => {
@@ -56,7 +60,7 @@ describe("why-you'll-like-it reasons", () => {
       evidence: { entityShares: [{ entityId: "k", name: "Khruangbin", share: 0.51 }], tagOverlap: [] },
       shortDescription: "Rooftop cocktail lounge with a panoramic downtown skyline view. Private events too.",
     });
-    expect(blurb).toBe("Rooftop cocktail lounge with a panoramic downtown skyline view. A strong Qloo match for Khruangbin fans.");
+    expect(blurb).toBe("Rooftop cocktail lounge with a panoramic downtown skyline view. A Qloo match for Khruangbin fans.");
     expect(blurb).not.toMatch(/People who love/);
   });
 
@@ -66,7 +70,34 @@ describe("why-you'll-like-it reasons", () => {
       evidence: { entityShares: [{ entityId: "k", name: "Khruangbin", share: 0.53 }], tagOverlap: [] },
       kind: "Concert hall",
     });
-    expect(blurb).toBe("A concert hall Qloo links strongly to Khruangbin fans.");
+    expect(blurb).toBe("A concert hall. A Qloo match for Khruangbin fans.");
+  });
+
+  it("never leads with a description Qloo cut off", () => {
+    // Brazos Hall's real description (tests/polish.test.ts).
+    const blurb = templateBlurb({
+      place: "Brazos Hall",
+      evidence: { entityShares: [{ entityId: "l", name: "Leon Bridges", share: 0.6 }], tagOverlap: [] },
+      shortDescription: "Stylish downtown venue with a rooftop deck, skyline views, and versatile...",
+      kind: "Event venue",
+    });
+    expect(blurb).toBe("An event venue. A Qloo match for Leon Bridges fans.");
+  });
+
+  it("doesn't credit Qloo on sample places, and reads well with no evidence", () => {
+    const evidence = { entityShares: [{ entityId: "k", name: "Khruangbin", share: 1 }], tagOverlap: [] };
+    expect(templateBlurb({ place: "P", evidence, kind: "Cafe", sample: true })).toBe("A cafe. A match for Khruangbin fans.");
+    expect(templateBlurb({ place: "P", evidence: { entityShares: [], tagOverlap: [] } })).toBe("A fit for your picks.");
+  });
+
+  it("accepts possessives and a title without its leading 'The'", () => {
+    expect(reasonProblem("Khruangbin fans will love the bar's rooftop and Austin's best skyline view.", "The Sunset Room", tastes)).toBeNull();
+    expect(reasonProblem("A pastel lobby café with old-world charm, an easy yes for Grand Budapest Hotel fans.", "X", tastes)).toBeNull();
+    expect(reasonProblem("A natural-wine bar with a quiet patio for Khruangbin nights.", "X", tastes)).toBeNull();
+  });
+
+  it("still rejects a quoted other place", () => {
+    expect(reasonProblem("Like 'Mohawk Austin', a room Khruangbin fans love for late shows.", "Brazos Hall", tastes)).toMatch(/quotation marks/);
   });
 });
 

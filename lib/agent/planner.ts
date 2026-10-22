@@ -1,6 +1,6 @@
 import { generateText, isStepCount, tool, type LanguageModel } from "ai";
 import { z } from "zod";
-import { gatewayReady, guardBlurb, modelOptions } from "@/lib/agent/blurb";
+import { gatewayReady, guardBlurb, looseName, modelOptions } from "@/lib/agent/blurb";
 import { reserve } from "@/lib/agent/budget";
 import type { ChosenStop, Scored } from "@/lib/engine/core";
 import { log } from "@/lib/log";
@@ -103,8 +103,8 @@ const WORDS_MIN = 8;
 export function reasonProblem(why: string, place: string, tasteNames: string[]): string | null {
   const guard = guardBlurb(why, place, tasteNames);
   if (!guard.ok) return guard.reason === "quoted-name" ? "no quotation marks or other place names" : "name one of the walker's tastes";
-  const lower = why.toLowerCase();
-  if (!tasteNames.some((name) => lower.includes(name.toLowerCase()))) return "name one of the walker's tastes";
+  const said = looseName(why);
+  if (!tasteNames.some((name) => said.includes(looseName(name)))) return `name one of the walker's tastes exactly: ${tasteNames.join(", ")}`;
   if (why.split(/\s+/).filter(Boolean).length < WORDS_MIN) return "too short: say why it fits and one concrete detail";
   if (INVENTED_FACTS.test(why)) return "no hours, prices or 'free'";
   return null;

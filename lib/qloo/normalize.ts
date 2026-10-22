@@ -85,7 +85,7 @@ function readHours(value: unknown): PlaceHours | undefined {
 }
 
 function isMidnight(value: string): boolean {
-  return /(?:^|T)00:00(?::00)?$/.test(value.trim());
+  return /^T?00:?00(?::?00)?(?:\.0+)?Z?$/.test(value.trim());
 }
 
 function readShares(entity: UnknownRecord, names: Map<string, string>): EntityShare[] {

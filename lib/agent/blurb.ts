@@ -5,7 +5,9 @@ import { reserve } from "@/lib/agent/budget";
 import { log } from "@/lib/log";
 import type { Evidence, TasteProfile } from "@/lib/types";
 
-const PLACE_RE = /"([^"]{2,80})"|'([^']{2,80})'/g;
+// A quoted name: double quotes, or single quotes that aren't apostrophes
+// inside a word ("the bar's rooftop and Austin's skyline" is not a quote).
+const PLACE_RE = /"([^"]{2,80})"|(?<![\p{L}\p{N}])'([^']{2,80})'(?![\p{L}\p{N}])/gu;
 const BECAUSE_RE = /(?:because you like|who love|fans of)\s+([^.]{2,80})/gi;
 
 export function templateBlurb(input: {
@@ -14,20 +16,37 @@ export function templateBlurb(input: {
   shortDescription?: string;
   orderNote?: string;
   kind?: string;
+  /** Built-in sample places: Qloo never ranked them, so don't credit it. */
+  sample?: boolean;
 }): string {
   const top = [...input.evidence.entityShares].sort((a, b) => b.share - a.share)[0];
   const tag = input.evidence.tagOverlap[0]?.name;
-  const who = top?.name ?? tag ?? "your tastes";
-  const and = top && tag ? ` and ${tag.toLowerCase()}` : "";
-  // Qloo's own description is the concrete part; the match is the "why you".
-  const clause = input.shortDescription?.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0]?.replace(/[.!?…]+$/, "");
+  const who = top?.name ? `${top.name}${top && tag ? ` and ${tag.toLowerCase()}` : ""} fans` : tag ? `${tag.toLowerCase()} fans` : undefined;
+  const match = who ? (input.sample ? `A match for ${who}.` : `A Qloo match for ${who}.`) : "A fit for your picks.";
+  // Qloo's own description is the concrete part, but only a whole sentence:
+  // Qloo cuts long descriptions off with "...", and a fragment can't lead.
+  const first = input.shortDescription?.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0];
+  const clause = first && /[.!?]$/.test(first) && !/(\.\.\.|…)$/.test(first) ? first.replace(/[.!?]+$/, "") : undefined;
   const kind = input.kind && input.kind !== "Place" ? input.kind.toLowerCase() : undefined;
   const body = clause
-    ? `${clause}. A strong Qloo match for ${who}${and} fans.`
-    : `${kind ? `A ${kind}` : "A place"} Qloo links strongly to ${who}${and} fans.`;
+    ? `${clause}. ${match}`
+    : kind
+      ? `${/^[aeiou]/.test(kind) ? "An" : "A"} ${kind}. ${match}`
+      : match;
   if (!input.orderNote) return body;
   const note = `${input.orderNote.charAt(0).toUpperCase()}${input.orderNote.slice(1)}.`;
   return `${body} ${note}`;
+}
+
+/** Taste names compared loosely: case, a leading "The", quotes and hyphens. */
+export function looseName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[‘’`]/g, "'")
+    .replace(/[-–—_]/g, " ")
+    .replace(/^the\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function guardBlurb(

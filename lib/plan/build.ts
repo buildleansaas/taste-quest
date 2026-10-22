@@ -198,6 +198,7 @@ function toStops(
       shortDescription: stop.shortDescription,
       orderNote: stop.orderNote,
       kind: stop.categoryLabel,
+      sample: stop.sample,
     });
     const closedNow = stop.hours ? !isOpenAt(stop.hours, weekday, eta) : false;
     elapsed += stop.dwellMin;
