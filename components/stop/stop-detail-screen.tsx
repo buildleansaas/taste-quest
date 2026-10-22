@@ -147,6 +147,8 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
             <span>
               {stop.closedNow ? (
                 <b style={{ color: "var(--color-error)" }}>Closed now</b>
+              ) : week.length === 0 ? (
+                <span>Hours not listed</span>
               ) : (
                 <>
                   <b style={{ color: "var(--color-open)" }}>Open</b>
@@ -217,10 +219,12 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
               </div>
             </>
           ) : null}
-          {week.length > 0 ? (
+          <div className="hair" style={{ margin: "16px 0" }} />
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Hours</div>
+          {week.length === 0 ? (
+            <p style={{ margin: 0, fontSize: 13, color: "var(--color-slate)" }}>Qloo doesn’t list hours for this place. Check before you go.</p>
+          ) : (
             <>
-              <div className="hair" style={{ margin: "16px 0" }} />
-              <div className="eyebrow" style={{ marginBottom: 8 }}>Hours</div>
               <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 16px", fontSize: 13 }}>
                 {week.map((row) => (
                   <div key={row.day} style={{ display: "contents", fontWeight: row.today ? 600 : 400, color: row.today ? "var(--color-ink)" : "var(--color-slate)" }}>
@@ -230,7 +234,7 @@ export function StopDetailScreen({ entityId }: { entityId: string }) {
                 ))}
               </div>
             </>
-          ) : null}
+          )}
         </div>
         <div className="stop-actions">
           {isNext ? (

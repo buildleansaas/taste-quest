@@ -13,14 +13,18 @@ export function templateBlurb(input: {
   evidence: Evidence;
   shortDescription?: string;
   orderNote?: string;
+  kind?: string;
 }): string {
   const top = [...input.evidence.entityShares].sort((a, b) => b.share - a.share)[0];
   const tag = input.evidence.tagOverlap[0]?.name;
-  const who = top?.name ?? "this taste";
-  const and = tag ? ` and ${tag.toLowerCase()}` : "";
-  const clause = input.shortDescription?.split(". ")[0];
-  const lead = `People who love ${who}${and} tend to love ${input.place}.`;
-  const body = clause ? `${lead} ${clause.replace(/\.$/, "")}.` : lead;
+  const who = top?.name ?? tag ?? "your tastes";
+  const and = top && tag ? ` and ${tag.toLowerCase()}` : "";
+  // Qloo's own description is the concrete part; the match is the "why you".
+  const clause = input.shortDescription?.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)[0]?.replace(/[.!?…]+$/, "");
+  const kind = input.kind && input.kind !== "Place" ? input.kind.toLowerCase() : undefined;
+  const body = clause
+    ? `${clause}. A strong Qloo match for ${who}${and} fans.`
+    : `${kind ? `A ${kind}` : "A place"} Qloo links strongly to ${who}${and} fans.`;
   if (!input.orderNote) return body;
   const note = `${input.orderNote.charAt(0).toUpperCase()}${input.orderNote.slice(1)}.`;
   return `${body} ${note}`;
@@ -83,7 +87,7 @@ export async function explainBlurbWithSource(input: {
   entityId: string;
 }): Promise<{ blurb: string; source: BlurbSource; error?: string }> {
   const fallback = templateBlurb(input);
-  const key = `blurb:v2:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
+  const key = `blurb:v3:${input.entityId}:${sha(input.profile.entities.map((e) => e.id).sort().join(","))}`;
   const cached = await cacheGet<string>(key);
   if (cached) return { blurb: cached, source: "cache" };
   if (!gatewayReady()) return { blurb: fallback, source: "template:no-gateway" };
@@ -100,7 +104,7 @@ export async function explainBlurbWithSource(input: {
     "You are a local friend who knows the listener's taste.",
     "Write at most 2 concrete sentences about why this place fits.",
     "Only mention this place by its exact name, without quotation marks. Do not invent hours, prices, awards, or history.",
-    "Phrase taste as: people who love X tend to love this.",
+    "Name one of the listener's tastes and one concrete detail from the description or tags. Sound natural; don't open with 'People who love'.",
     `Place: ${input.place}`,
     `Known description: ${input.shortDescription ?? "none"}`,
     `Entity shares: ${shares || "none"}`,

@@ -45,7 +45,7 @@ const SYSTEM = [
   "plan_walk owns timing and the route; accept the stops it returns.",
   "Use include (up to 3 ids) to favour the best matches for the vibe and exclude (up to 10) to drop places that clash with it (for example loud bars for 'quiet').",
   "add_vibe can be called at most twice.",
-  "In explain_stops, write two plain sentences per stop. First: 'People who love <one of the walker's tastes from its evidence> tend to love <the place's exact name>.' Second: one concrete thing about it from its kind or Qloo tags (for example 'A blues club with live music most nights').",
+  "In explain_stops, write one or two natural sentences per stop, like a friend who knows the city: why it fits, naming one of the walker's tastes from its evidence, plus one concrete detail from its Qloo description ('about'), kind or tags (for example 'A rooftop lounge with a skyline view, an easy yes for Khruangbin fans.'). Vary the wording from stop to stop and don't open with 'People who love'. At least 8 words. Never state hours, prices or anything the data doesn't say.",
   "Name only the place itself and the walker's own tastes. No quotes, no other venues, no emojis.",
 ].join("\n");
 
@@ -64,6 +64,15 @@ type AgentState = {
   steps: string[];
 };
 
+/** "A, B and natural wine": entities keep their names, tags read in lower case. */
+export function listNames(names: string[], max: number): string {
+  const shown = names.slice(0, max);
+  const extra = names.length - shown.length;
+  if (extra > 0) shown.push(`${extra} more`);
+  if (shown.length <= 1) return shown.join("");
+  return `${shown.slice(0, -1).join(", ")} and ${shown[shown.length - 1]}`;
+}
+
 function pct(value: number): number {
   return Math.round(value * 100);
 }
@@ -77,7 +86,28 @@ function summarize(cand: Scored) {
     match: `${pct(cand.affinity)}%`,
     because: because ? `${because.name} (${pct(because.share)}% of the match)` : undefined,
     tags: cand.tagOverlap.slice(0, 3).map((tag) => tag.name),
+    about: aboutText(cand.shortDescription),
   };
+}
+
+/** Qloo's own description, trimmed: the concrete detail a reason can use. */
+function aboutText(text?: string): string | undefined {
+  const clean = text?.replace(/\s+/g, " ").trim();
+  if (!clean) return undefined;
+  return clean.length > 200 ? `${clean.slice(0, 197).replace(/\s+\S*$/, "")}…` : clean;
+}
+
+const WORDS_MIN = 8;
+
+/** Why a reason can't be shown, or null when it can. */
+export function reasonProblem(why: string, place: string, tasteNames: string[]): string | null {
+  const guard = guardBlurb(why, place, tasteNames);
+  if (!guard.ok) return guard.reason === "quoted-name" ? "no quotation marks or other place names" : "name one of the walker's tastes";
+  const lower = why.toLowerCase();
+  if (!tasteNames.some((name) => lower.includes(name.toLowerCase()))) return "name one of the walker's tastes";
+  if (why.split(/\s+/).filter(Boolean).length < WORDS_MIN) return "too short: say why it fits and one concrete detail";
+  if (INVENTED_FACTS.test(why)) return "no hours, prices or 'free'";
+  return null;
 }
 
 /**
@@ -145,10 +175,12 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
           state.loading ??= gatherPlan(input, state.context, state.extraTags);
           state.basis = await state.loading;
           const top = [...state.basis.prepared].sort((a, b) => b.baseScore - a.baseScore);
-          const lead = names.slice(0, 2).join(" and ") || "your tastes";
+          const lead = listNames([...names, ...input.profile.tags.map((tag) => tag.name.toLowerCase())], 3) || "your tastes";
           // Say which data answered: Qloo, or the built-in sample places when no key is set.
           const source = qlooConfigured() ? `Asked Qloo for places ${lead} fans love nearby` : `Searched the sample Austin places for ${lead} fans`;
-          step(`${source}: ${state.basis.loaded.candidates.length} found, ${top.length} open and walkable`);
+          // Places with no listed hours stay in (they may well be open), and the step says how many.
+          const unlisted = top.filter((cand) => !cand.hours).length;
+          step(`${source}: ${state.basis.loaded.candidates.length} found, ${top.length} walkable and open${unlisted ? ` (${unlisted} list no hours)` : ""}`);
         }
         // Only the first call returns the list; repeats would resend it every step.
         state.placesShown += 1;
@@ -180,7 +212,7 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
         const picked = state.plan.chosen;
         step(`Planned ${picked.length} stop${picked.length === 1 ? "" : "s"} in ${Math.round(state.plan.total)} of your ${input.budgetMin} minutes: ${picked.map((stop) => stop.name).join(", ")}`);
         return {
-          stops: picked.map((stop) => ({ id: stop.entityId, name: stop.name, match: `${pct(stop.affinity)}%` })),
+          stops: picked.map((stop) => ({ ...summarize(stop), match: `${pct(stop.affinity)}%` })),
           minutesUsed: Math.round(state.plan.total),
           budgetMinutes: input.budgetMin,
         };
@@ -202,10 +234,13 @@ export async function agentWalk(input: PlanInput, opts: { model?: LanguageModel;
             continue;
           }
           const why = reason.why.replace(/\s+/g, " ").trim();
-          const guard = guardBlurb(why, place, tasteNames);
-          if (!guard.ok) rejected.push({ id: reason.id, reason: guard.reason === "quoted-name" ? "no quotation marks or other place names" : "name one of the walker's tastes" });
-          else if (INVENTED_FACTS.test(why)) rejected.push({ id: reason.id, reason: "no hours, prices or 'free'" });
+          const problem = reasonProblem(why, place, tasteNames);
+          if (problem) rejected.push({ id: reason.id, reason: problem });
           else state.reasons.set(reason.id, why);
+        }
+        // A stop left without a reason counts as rejected, so it gets the rewrite too.
+        for (const id of planned.keys()) {
+          if (!state.reasons.has(id) && !rejected.some((item) => item.id === id)) rejected.push({ id, reason: "missing: write a reason for this stop" });
         }
         const kept = [...planned.keys()].filter((id) => state.reasons.has(id)).length;
         if (!rejected.length || state.explainCalls >= 1) step(`Wrote why each stop fits you, from the taste evidence (${kept} of ${planned.size})`);
